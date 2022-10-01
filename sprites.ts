@@ -19,6 +19,6 @@ const monolithTexture = spriteTexture(1);
 
 export function makeSheepSprite(): THREE.Sprite {
   const sprite = new THREE.Sprite(sheepMaterial);
-  sprite.scale.set(10, 10, 10);
+  sprite.scale.set(15, 15, 15);
   return sprite;
 }

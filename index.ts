@@ -165,7 +165,7 @@ class App {
     const tx = (tPos.getX(vertex) + faceCenterX * wander) / (1 + wander);
     const ty = (tPos.getY(vertex) + faceCenterY * wander) / (1 + wander);
     const tz = (tPos.getZ(vertex) + faceCenterZ * wander) / (1 + wander);
-    sprite.position.set(tx, ty, tz + 5);
+    sprite.position.set(tx, ty, tz + 7);
 
     this.terrainMesh.add(sprite);
     this.sheep.push(new Sheep(sprite, intersection.faceIndex));
