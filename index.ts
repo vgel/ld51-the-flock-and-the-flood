@@ -169,7 +169,6 @@ class App {
     const faceCenterZ = (tPos.getZ(faceIndex * 3) + tPos.getZ(faceIndex * 3 + 1) + tPos.getZ(faceIndex * 3 + 2)) / 3;
 
     const vertex = faceIndex * 3 + faceSheepCount;
-    console.log(vertex);
     const wander = Math.random() + 1;
     const tx = (tPos.getX(vertex) + faceCenterX * wander) / (1 + wander);
     const ty = (tPos.getY(vertex) + faceCenterY * wander) / (1 + wander);
@@ -197,7 +196,6 @@ class App {
   }
 
   public raycast(intersection: THREE.Intersection<THREE.Object3D>) {
-    console.log(intersection);
     const sheep = new Sheep(makeSheepSprite(), intersection.faceIndex);
 
     if (this.trySetSheepOnFace(sheep, intersection.faceIndex)) {
