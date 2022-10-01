@@ -49,15 +49,12 @@ export class TerrainGeometry extends THREE.BufferGeometry {
   //      / \ / \ / \ /
   //     0---1---2---3
 
-  private readonly positions: THREE.BufferAttribute;
-  private readonly colors: THREE.BufferAttribute;
+  public readonly positions: THREE.BufferAttribute;
+  public readonly colors: THREE.BufferAttribute;
 
   constructor(
-    public readonly generator: TerrainGen,
     public readonly width: number,
-    public readonly resolution: number, // quads per side
-    public readonly colorMap: (height: number) => THREE.Color,
-    public readonly waterLevel: number
+    public readonly resolution: number // quads per side
   ) {
     super();
 
@@ -68,8 +65,6 @@ export class TerrainGeometry extends THREE.BufferGeometry {
 
     this.colors = new THREE.BufferAttribute(new Float32Array(bufferSize), 3);
     this.setAttribute("color", this.colors);
-
-    this.setupVertices();
   }
 
   // n quads per row,, n rows
@@ -105,7 +100,7 @@ export class TerrainGeometry extends THREE.BufferGeometry {
   //     odd rows:  n,     n + 1, n + r + 1 ; n + 1, n + r + 2, n + r + 1
   //     even rows: n, n + r + 2, n + r + 1 ;     n,     n + 1, n + r + 2
 
-  private vertexAtIndex(index: number) {
+  private vertexAtIndex(generator: TerrainGen, index: number) {
     const sideLen = this.width / this.resolution;
     const heightStep = Math.sqrt(sideLen ** 2 + (sideLen / 2) ** 2); // solve the height of equilateral triangle
     const height = heightStep * this.resolution;
@@ -118,25 +113,31 @@ export class TerrainGeometry extends THREE.BufferGeometry {
     return {
       x,
       y,
-      z: this.generator.sample(x / this.width - 0.5, y / height - 0.5),
+      z: generator.sample(x / this.width - 0.5, y / height - 0.5),
     };
   }
 
-  private triangle(indexes: number[], triangleOffset: number) {
-    const points = indexes.map((i) => this.vertexAtIndex(i));
+  private setTriangle(
+    generator: TerrainGen,
+    colorMap: (z: number) => THREE.Color,
+    waterLevel: number,
+    indexes: number[],
+    triangleOffset: number
+  ) {
+    const points = indexes.map((i) => this.vertexAtIndex(generator, i));
     const maxZ = points.reduce((l, r) => (l.z > r.z ? l : r)).z;
-    const color = this.colorMap(maxZ);
+    const color = colorMap(maxZ);
 
     for (let i = 0; i < points.length; i++) {
       const { x, y, z } = points[i];
       const offset = triangleOffset + i * 3;
 
-      this.positions.set([x, y, Math.max(this.waterLevel, z)], offset);
+      this.positions.set([x, y, Math.max(waterLevel, z)], offset);
       this.colors.set(color.toArray(), offset);
     }
   }
 
-  private setupVertices() {
+  public setupVertices(generator: TerrainGen, colorMap: (z: number) => THREE.Color, waterLevel: number) {
     const r = this.resolution;
 
     for (let n = 0; n < this.numUniqueVertices; n++) {
@@ -146,11 +147,11 @@ export class TerrainGeometry extends THREE.BufferGeometry {
       if (row !== r && col !== r) {
         const rowIsEven = row % 2 === 0;
         if (!rowIsEven) {
-          this.triangle([n, n + 1, n + r + 1], n * 18 + 0);
-          this.triangle([n + 1, n + r + 2, n + r + 1], n * 18 + 9);
+          this.setTriangle(generator, colorMap, waterLevel, [n, n + 1, n + r + 1], n * 18 + 0);
+          this.setTriangle(generator, colorMap, waterLevel, [n + 1, n + r + 2, n + r + 1], n * 18 + 9);
         } else {
-          this.triangle([n, n + r + 2, n + r + 1], n * 18 + 0);
-          this.triangle([n, n + 1, n + r + 2], n * 18 + 9);
+          this.setTriangle(generator, colorMap, waterLevel, [n, n + r + 2, n + r + 1], n * 18 + 0);
+          this.setTriangle(generator, colorMap, waterLevel, [n, n + 1, n + r + 2], n * 18 + 9);
         }
       }
 

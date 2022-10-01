@@ -3,6 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import dat from "dat.gui";
 
 import { TerrainGen, TerrainGeometry } from "./terrain";
+import { makeSheepSprite } from "./sprites";
 
 interface TerrainOptions {
   seed: string;
@@ -14,13 +15,19 @@ interface TerrainOptions {
   waterLevel: number;
 }
 
+class Sheep {
+  constructor(public sprite: THREE.Sprite, public faceIndex: number) {}
+}
+
 class App {
   public readonly renderer: THREE.WebGLRenderer;
   public readonly camera: THREE.PerspectiveCamera;
   public readonly controls: OrbitControls;
   public readonly scene: THREE.Scene;
 
-  public mesh?: THREE.Mesh;
+  public terrain: TerrainGeometry;
+  public terrainMesh: THREE.Mesh;
+  public sheep: Sheep[];
 
   constructor({
     backgroundColor = 0x000000,
@@ -29,11 +36,13 @@ class App {
       { light: new THREE.HemisphereLight(0x000000, 0xffffff, 0.95), position: [0, -50, -100] },
       { light: new THREE.AmbientLight(0xaaccff, 0.35), position: [-200, -100, 200] },
     ],
+    meshSize = 1000,
   } = {}) {
     this.renderer = new THREE.WebGLRenderer({
       alpha: true,
       antialias: true,
     });
+    this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setClearColor(backgroundColor, 1);
     document.querySelector("main").appendChild(this.renderer.domElement);
 
@@ -44,6 +53,21 @@ class App {
     this.scene = new THREE.Scene();
     this.scene.add(this.camera);
 
+    this.terrain = new TerrainGeometry(meshSize, 25);
+    const terrainMaterial = new THREE.MeshPhongMaterial({
+      vertexColors: true,
+      flatShading: true,
+      side: THREE.DoubleSide,
+    });
+    this.terrainMesh = new THREE.Mesh(this.terrain, terrainMaterial);
+    this.terrainMesh.rotation.x = -Math.PI / 2;
+    this.terrainMesh.position.set(0, -100, -150);
+    this.terrainMesh.frustumCulled = false;
+    this.scene.add(this.terrainMesh);
+
+    const meshCenter = this.terrainMesh.position.clone().add(new THREE.Vector3(meshSize / 2, 0, -meshSize / 2));
+    this.controls.target.copy(meshCenter);
+
     for (const { light, position } of lights) {
       this.scene.add(light);
       light.position.fromArray(position);
@@ -51,6 +75,8 @@ class App {
 
     window.onresize = () => this.setSize();
     this.setSize();
+
+    this.sheep = [];
   }
 
   public setSize() {
@@ -62,13 +88,11 @@ class App {
     this.controls.update();
   }
 
-  public generate(opts: TerrainOptions) {
-    const meshSize = 1000;
-
+  public updateTerrain(opts: TerrainOptions) {
     const colorMap = (height: number) => {
       if (height > opts.waterLevel) {
         if (height > 120) {
-          return new THREE.Color(0xffffff); // white
+          return new THREE.Color(0xcccccc); // white
         } else if (height > 30) {
           return new THREE.Color(0x6e5f3f); // brown
         } else {
@@ -89,12 +113,6 @@ class App {
       }
     };
 
-    const material = new THREE.MeshPhongMaterial({
-      vertexColors: true,
-      flatShading: true,
-      side: THREE.DoubleSide,
-    } as any);
-
     const generator = new TerrainGen(
       opts.heightStretch,
       (x, y) => {
@@ -106,31 +124,68 @@ class App {
       opts.persistence,
       opts.seed
     );
-    const geometry = new TerrainGeometry(generator, meshSize, 25, colorMap, opts.waterLevel);
 
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(0, -100, -150);
-    mesh.frustumCulled = false;
-
-    if (this.mesh === undefined) {
-      // first run, set up camera
-      const meshCenter = mesh.position.clone().add(new THREE.Vector3(meshSize / 2, 0, -meshSize / 2));
-      this.controls.target.copy(meshCenter);
-    } else {
-      // delete the old mesh
-      this.scene.remove(this.mesh);
-    }
-
-    this.mesh = mesh;
-    this.scene.add(mesh);
+    this.terrain.setupVertices(generator, colorMap, opts.waterLevel);
   }
 
-  public render = () => {
+  public render() {
     this.renderer.render(this.scene, this.camera);
     this.controls.update();
-    requestAnimationFrame(this.render);
-  };
+    requestAnimationFrame(() => this.render());
+  }
+
+  public raycast(intersection: THREE.Intersection<THREE.Object3D>) {
+    let faceSheepCount = 0;
+    for (let sheep of this.sheep) {
+      if (intersection.faceIndex == sheep.faceIndex) {
+        faceSheepCount++;
+      }
+    }
+
+    const face = intersection.face;
+    const tPos = this.terrain.positions;
+
+    let vertex: number;
+    if (faceSheepCount >= 3) {
+      return;
+    } else if (faceSheepCount == 2) {
+      vertex = face.a;
+    } else if (faceSheepCount == 1) {
+      vertex = face.b;
+    } else {
+      vertex = face.c;
+    }
+
+    const faceCenterX = (tPos.getX(face.a) + tPos.getX(face.b) + tPos.getX(face.c)) / 3;
+    const faceCenterY = (tPos.getY(face.a) + tPos.getY(face.b) + tPos.getY(face.c)) / 3;
+    const faceCenterZ = (tPos.getZ(face.a) + tPos.getZ(face.b) + tPos.getZ(face.c)) / 3;
+
+    const sprite = makeSheepSprite();
+    const wander = Math.random() + 1;
+    const tx = (tPos.getX(vertex) + faceCenterX * wander) / (1 + wander);
+    const ty = (tPos.getY(vertex) + faceCenterY * wander) / (1 + wander);
+    const tz = (tPos.getZ(vertex) + faceCenterZ * wander) / (1 + wander);
+    sprite.position.set(tx, ty, tz + 5);
+
+    this.terrainMesh.add(sprite);
+    this.sheep.push(new Sheep(sprite, intersection.faceIndex));
+
+    // TODO:
+    // face.a, b, c are indexes into object.geometry.vertices, which are point objects
+    // so we can find the closest vertex by testing each against intersection.point, i think
+    // i think the objects should be on vertices, not face centers, since a face can be
+    // partially underwater and that's confusing. if you can only place on an above-water
+    // vertex, that has less edge cases
+    // also, we don't have to care about normals l0l
+
+    // const color = new THREE.Color(Math.random() * 0xff0000);
+
+    // colorAttribute.setXYZ(face.a, color.r, color.g, color.b);
+    // colorAttribute.setXYZ(face.b, color.r, color.g, color.b);
+    // colorAttribute.setXYZ(face.c, color.r, color.g, color.b);
+
+    // colorAttribute.needsUpdate = true;
+  }
 }
 
 const debounce = (fn: (...a: any) => void, time: number) => {
@@ -147,27 +202,22 @@ const debounce = (fn: (...a: any) => void, time: number) => {
 const options: TerrainOptions = {
   seed: "nauthiel",
   octaves: 5,
-  scale: 2,
-  lacunarity: 2,
+  scale: 3,
+  lacunarity: 1.8,
   persistence: 0.5,
 
   heightStretch: 150,
 
-  waterLevel: 0,
+  waterLevel: -70,
 };
 
 window.onload = () => {
   const app = new App();
   window["app"] = app;
 
-  // TODO ttesings
   const caster = new THREE.Raycaster();
-  function onClick(event) {
+  function onClick(event: MouseEvent) {
     event.preventDefault();
-
-    if (!app.mesh) {
-      return;
-    }
 
     const mouse = new THREE.Vector2();
     mouse.x = (event.clientX / app.renderer.domElement.offsetWidth) * 2 - 1;
@@ -175,29 +225,14 @@ window.onload = () => {
 
     caster.setFromCamera(mouse, app.camera);
 
-    const intersects = caster.intersectObjects([app.mesh]);
+    const intersects = caster.intersectObjects([app.terrainMesh]);
 
     if (intersects.length > 0) {
-      const intersection = intersects[0];
-
-      const colorAttribute = (intersection.object as THREE.Mesh).geometry.getAttribute("color");
-      const face = intersection.face;
-
-      // TODO:
-      // face.a, b, c are indexes into object.geometry.vertices, which are point objects
-      // so we can find the closest vertex by testing each against intersection.point, i think
-      // i think the objects should be on vertices, not face centers, since a face can be
-      // partially underwater and that's confusing. if you can only place on an above-water
-      // vertex, that has less edge cases
-      // also, we don't have to care about normals l0l
-
-      const color = new THREE.Color(Math.random() * 0xff0000);
-
-      colorAttribute.setXYZ(face.a, color.r, color.g, color.b);
-      colorAttribute.setXYZ(face.b, color.r, color.g, color.b);
-      colorAttribute.setXYZ(face.c, color.r, color.g, color.b);
-
-      colorAttribute.needsUpdate = true;
+      for (let m of intersects) {
+        if (m.object === app.terrainMesh) {
+          app.raycast(m);
+        }
+      }
     }
   }
 
@@ -206,7 +241,7 @@ window.onload = () => {
   const gui = new dat.GUI();
 
   const generate = () => {
-    app.generate(options);
+    app.updateTerrain(options);
   };
 
   // simple filter to only react when the value actually changes, instead of on all focus lost events
@@ -238,7 +273,7 @@ window.onload = () => {
   onActualChange(gui.add(options, "lacunarity", 0.01, 10), generate);
   onActualChange(gui.add(options, "persistence", 0.01, 1), generate);
   onActualChange(gui.add(options, "heightStretch", 1, 200), generate);
-  onActualChange(gui.add(options, "waterLevel", 0, 150).step(1), generate);
+  onActualChange(gui.add(options, "waterLevel", -150, 150).step(1), generate);
   gui.add(
     {
       raiseWaterLevel: () => {
