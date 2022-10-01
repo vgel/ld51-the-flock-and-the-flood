@@ -51,6 +51,8 @@ export class TerrainGeometry extends THREE.BufferGeometry {
 
   public readonly positions: THREE.BufferAttribute;
   public readonly colors: THREE.BufferAttribute;
+  public vertexToFaces: Record<number, number[]>;
+  public faceToVertices: Record<number, number[]>;
 
   constructor(
     public readonly width: number,
@@ -117,28 +119,52 @@ export class TerrainGeometry extends THREE.BufferGeometry {
     };
   }
 
-  private setTriangle(
+  /**
+   * NOTE: a, b, and c are NOT indexes into the position buffer, they are arbitrary
+   * numbers that we generate in setupVertices.
+   */
+  private setFace(
     generator: TerrainGen,
     colorMap: (z: number) => THREE.Color,
     waterLevel: number,
-    indexes: number[],
-    triangleOffset: number
+    faceIdx: number,
+    a: number,
+    b: number,
+    c: number
   ) {
-    const points = indexes.map((i) => this.vertexAtIndex(generator, i));
-    const maxZ = points.reduce((l, r) => (l.z > r.z ? l : r)).z;
+    const pA = this.vertexAtIndex(generator, a);
+    const pB = this.vertexAtIndex(generator, b);
+    const pC = this.vertexAtIndex(generator, c);
+    const maxZ = Math.max(pA.z, pB.z, pC.z);
     const color = colorMap(maxZ);
 
-    for (let i = 0; i < points.length; i++) {
-      const { x, y, z } = points[i];
-      const offset = triangleOffset + i * 3;
-
-      this.positions.set([x, y, Math.max(waterLevel, z)], offset);
-      this.colors.set(color.toArray(), offset);
+    // set vertex colors
+    for (let i = 0; i < 3; i++) {
+      this.colors.setXYZ(faceIdx * 3 + i, color.r, color.g, color.b);
     }
+
+    // set positions / adjacency
+    // TODO: kinda wasteful to set this each time it's modified instead of checking if dirty
+    this.faceToVertices[faceIdx] = [a, b, c];
+
+    this.vertexToFaces[a] ??= [];
+    this.vertexToFaces[a].push(faceIdx);
+    this.positions.setXYZ(faceIdx * 3 + 0, pA.x, pA.y, Math.max(waterLevel, pA.z));
+
+    this.vertexToFaces[b] ??= [];
+    this.vertexToFaces[b].push(faceIdx);
+    this.positions.setXYZ(faceIdx * 3 + 1, pB.x, pB.y, Math.max(waterLevel, pB.z));
+
+    this.vertexToFaces[c] ??= [];
+    this.vertexToFaces[c].push(faceIdx);
+    this.positions.setXYZ(faceIdx * 3 + 2, pC.x, pC.y, Math.max(waterLevel, pC.z));
   }
 
   public setupVertices(generator: TerrainGen, colorMap: (z: number) => THREE.Color, waterLevel: number) {
     const r = this.resolution;
+
+    this.faceToVertices = {};
+    this.vertexToFaces = {};
 
     for (let n = 0; n < this.numUniqueVertices; n++) {
       const row = Math.floor(n / (r + 1));
@@ -147,11 +173,11 @@ export class TerrainGeometry extends THREE.BufferGeometry {
       if (row !== r && col !== r) {
         const rowIsEven = row % 2 === 0;
         if (!rowIsEven) {
-          this.setTriangle(generator, colorMap, waterLevel, [n, n + 1, n + r + 1], n * 18 + 0);
-          this.setTriangle(generator, colorMap, waterLevel, [n + 1, n + r + 2, n + r + 1], n * 18 + 9);
+          this.setFace(generator, colorMap, waterLevel, n * 2 + 0, n, n + 1, n + r + 1);
+          this.setFace(generator, colorMap, waterLevel, n * 2 + 1, n + 1, n + r + 2, n + r + 1);
         } else {
-          this.setTriangle(generator, colorMap, waterLevel, [n, n + r + 2, n + r + 1], n * 18 + 0);
-          this.setTriangle(generator, colorMap, waterLevel, [n, n + 1, n + r + 2], n * 18 + 9);
+          this.setFace(generator, colorMap, waterLevel, n * 2 + 0, n, n + r + 2, n + r + 1);
+          this.setFace(generator, colorMap, waterLevel, n * 2 + 1, n, n + 1, n + r + 2);
         }
       }
 
@@ -161,5 +187,22 @@ export class TerrainGeometry extends THREE.BufferGeometry {
 
     this.computeBoundingSphere();
     this.computeVertexNormals();
+  }
+
+  /** Returns faces with two shared vertices with the given face. Will not return the given face. */
+  public adjacentFaces(faceIdx: number): number[] {
+    const adj = new Map<number, number>();
+    for (let vertex of this.faceToVertices[faceIdx]) {
+      for (let otherFace of this.vertexToFaces[vertex]) {
+        if (otherFace !== faceIdx) {
+          if (adj.has(otherFace)) {
+            adj.set(otherFace, 2);
+          } else {
+            adj.set(otherFace, 1);
+          }
+        }
+      }
+    }
+    return [...adj.entries()].filter(([_, v]) => v == 2).map(([k, v]) => k);
   }
 }

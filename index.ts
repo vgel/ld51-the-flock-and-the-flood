@@ -4,6 +4,7 @@ import dat from "dat.gui";
 
 import { TerrainGen, TerrainGeometry } from "./terrain";
 import { makeSheepSprite } from "./sprites";
+import { shuffle } from "./utils";
 
 interface TerrainOptions {
   seed: string;
@@ -53,7 +54,7 @@ class App {
     this.scene = new THREE.Scene();
     this.scene.add(this.camera);
 
-    this.terrain = new TerrainGeometry(meshSize, 25);
+    this.terrain = new TerrainGeometry(meshSize, 35);
     const terrainMaterial = new THREE.MeshPhongMaterial({
       vertexColors: true,
       flatShading: true,
@@ -129,62 +130,80 @@ class App {
   }
 
   public render() {
+    this.tick();
     this.renderer.render(this.scene, this.camera);
     this.controls.update();
     requestAnimationFrame(() => this.render());
   }
 
-  public raycast(intersection: THREE.Intersection<THREE.Object3D>) {
+  countSheepOnFace(faceIndex: number): number {
     let faceSheepCount = 0;
     for (let sheep of this.sheep) {
-      if (intersection.faceIndex == sheep.faceIndex) {
+      if (faceIndex == sheep.faceIndex) {
         faceSheepCount++;
       }
     }
+    return faceSheepCount;
+  }
 
-    const face = intersection.face;
-    const tPos = this.terrain.positions;
+  trySetSheepOnFace(sheep: Sheep, faceIndex: number): boolean {
+    // for (let i = 0; i < 3; i++) {
+    //   this.terrain.colors.setXYZ(faceIndex * 3 + i, 1, 0, 0);
+    // }
+    // for (let adj of this.terrain.adjacentFaces(faceIndex)) {
+    //   for (let i = 0; i < 3; i++) {
+    //     this.terrain.colors.setXYZ(adj * 3 + i, 0, 1, 0);
+    //   }
+    // }
+    // this.terrain.colors.needsUpdate = true;
 
-    let vertex: number;
+    const faceSheepCount = this.countSheepOnFace(faceIndex);
     if (faceSheepCount >= 3) {
-      return;
-    } else if (faceSheepCount == 2) {
-      vertex = face.a;
-    } else if (faceSheepCount == 1) {
-      vertex = face.b;
-    } else {
-      vertex = face.c;
+      return false;
     }
 
-    const faceCenterX = (tPos.getX(face.a) + tPos.getX(face.b) + tPos.getX(face.c)) / 3;
-    const faceCenterY = (tPos.getY(face.a) + tPos.getY(face.b) + tPos.getY(face.c)) / 3;
-    const faceCenterZ = (tPos.getZ(face.a) + tPos.getZ(face.b) + tPos.getZ(face.c)) / 3;
+    const tPos = this.terrain.positions;
 
-    const sprite = makeSheepSprite();
+    const faceCenterX = (tPos.getX(faceIndex * 3) + tPos.getX(faceIndex * 3 + 1) + tPos.getX(faceIndex * 3 + 2)) / 3;
+    const faceCenterY = (tPos.getY(faceIndex * 3) + tPos.getY(faceIndex * 3 + 1) + tPos.getY(faceIndex * 3 + 2)) / 3;
+    const faceCenterZ = (tPos.getZ(faceIndex * 3) + tPos.getZ(faceIndex * 3 + 1) + tPos.getZ(faceIndex * 3 + 2)) / 3;
+
+    const vertex = faceIndex * 3 + faceSheepCount;
+    console.log(vertex);
     const wander = Math.random() + 1;
     const tx = (tPos.getX(vertex) + faceCenterX * wander) / (1 + wander);
     const ty = (tPos.getY(vertex) + faceCenterY * wander) / (1 + wander);
     const tz = (tPos.getZ(vertex) + faceCenterZ * wander) / (1 + wander);
-    sprite.position.set(tx, ty, tz + 7);
 
-    this.terrainMesh.add(sprite);
-    this.sheep.push(new Sheep(sprite, intersection.faceIndex));
+    sheep.sprite.position.set(tx, ty, tz + 7);
+    sheep.faceIndex = faceIndex;
 
-    // TODO:
-    // face.a, b, c are indexes into object.geometry.vertices, which are point objects
-    // so we can find the closest vertex by testing each against intersection.point, i think
-    // i think the objects should be on vertices, not face centers, since a face can be
-    // partially underwater and that's confusing. if you can only place on an above-water
-    // vertex, that has less edge cases
-    // also, we don't have to care about normals l0l
+    return true;
+  }
 
-    // const color = new THREE.Color(Math.random() * 0xff0000);
+  tick() {
+    for (let sheep of this.sheep) {
+      if (Math.random() < 0.1) {
+        // try to move the sheep
+        let adj = this.terrain.adjacentFaces(sheep.faceIndex);
+        shuffle(adj);
+        for (let adjFaceIndex of adj) {
+          if (this.trySetSheepOnFace(sheep, adjFaceIndex)) {
+            break;
+          }
+        }
+      }
+    }
+  }
 
-    // colorAttribute.setXYZ(face.a, color.r, color.g, color.b);
-    // colorAttribute.setXYZ(face.b, color.r, color.g, color.b);
-    // colorAttribute.setXYZ(face.c, color.r, color.g, color.b);
+  public raycast(intersection: THREE.Intersection<THREE.Object3D>) {
+    console.log(intersection);
+    const sheep = new Sheep(makeSheepSprite(), intersection.faceIndex);
 
-    // colorAttribute.needsUpdate = true;
+    if (this.trySetSheepOnFace(sheep, intersection.faceIndex)) {
+      this.terrainMesh.add(sheep.sprite);
+      this.sheep.push(sheep);
+    }
   }
 }
 
@@ -238,14 +257,14 @@ window.onload = () => {
 
   document.querySelector("main").addEventListener("click", onClick);
 
-  const gui = new dat.GUI();
+  const gui: any = new dat.GUI();
 
   const generate = () => {
     app.updateTerrain(options);
   };
 
   // simple filter to only react when the value actually changes, instead of on all focus lost events
-  const onActualChange = <T>(controller: dat.GUIController, callback: (oldV: T, newV: T) => void) => {
+  const onActualChange = <T>(controller: any, callback: (oldV: T, newV: T) => void) => {
     let currentValue: T = controller.getValue();
     controller.onChange(
       debounce((newValue) => {
