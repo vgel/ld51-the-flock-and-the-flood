@@ -56,6 +56,8 @@ export class TerrainGeometry extends THREE.BufferGeometry {
   public vertexToFaces: Record<number, number[]>;
   public faceToVertices: Record<number, number[]>;
 
+  public vertexWaterDepth: Float32Array;
+  scratchVertexWaterDepth: Float32Array;
 
   constructor(
     public readonly width: number,
@@ -80,6 +82,11 @@ export class TerrainGeometry extends THREE.BufferGeometry {
       const height = heightStep * this.resolution;
       this.heightmap[i] = generator.sample(x / this.width - 0.5, y / height - 0.5);
     }
+
+    this.vertexWaterDepth = new Float32Array(this.numUniqueVertices);
+    this.vertexWaterDepth.fill(0);
+    this.scratchVertexWaterDepth = new Float32Array(this.vertexWaterDepth.length);
+    this.scratchVertexWaterDepth.fill(0);
   }
 
   // n quads per row,, n rows
@@ -136,53 +143,45 @@ export class TerrainGeometry extends THREE.BufferGeometry {
     return { x, y, z };
   }
 
-  // public flood(edgeWaterLevel: number) {
-  //   this.faceWaterDepthScratch.set(this.faceWaterDepth);
+  public flood(edgeWaterLevel: number): boolean {
+    this.scratchVertexWaterDepth.set(this.vertexWaterDepth);
 
-  //   // set edges
-  //   for (let i = 0; i < this.numUniqueVertices; i++) {
-  //     const row = Math.floor(i / (this.resolution + 1));
-  //     const col = i % (this.resolution + 1);
-  //     const isEdge = row == 0 || col == 0 || row == this.resolution || col == this.resolution;
-  //     if (isEdge) {
-  //       for (let face of this.vertexToFaces[i]) {
-  //         this.faceWaterDepthScratch[face] = edgeWaterLevel - this.faceMinHeight(face);
-  //       }
-  //     }
-  //   }
+    for (let i = 0; i < this.numUniqueVertices; i++) {
+      const row = Math.floor(i / (this.resolution + 1));
+      const col = i % (this.resolution + 1);
+      const isEdge = row == 0 || col == 0 || row == this.resolution || col == this.resolution;
+      if (isEdge) {
+        this.scratchVertexWaterDepth[i] = edgeWaterLevel - this.heightmap[i];
+      } else {
+        // spread to adj vertices
+        for (let face of this.vertexToFaces[i]) {
+          for (let j of this.faceToVertices[face]) {
+            if (i !== j) {
+              if (
+                this.vertexWaterDepth[j] > 0 &&
+                this.heightmap[j] + this.vertexWaterDepth[j] > this.heightmap[i] + this.scratchVertexWaterDepth[i]
+              ) {
+                this.scratchVertexWaterDepth[i] = Math.max(
+                  this.scratchVertexWaterDepth[i],
+                  this.heightmap[j] + this.vertexWaterDepth[j] - this.heightmap[i]
+                );
+              }
+            }
+          }
+        }
+      }
+    }
 
-  //   // spread to adj faces
-  //   for (let face = 0; face < this.numQuads * 2; face++) {
-  //     if (this.faceWaterDepth[face] > 0) {
-  //       let totalHeight = this.faceMinHeight(face) + this.faceWaterDepth[face];
-  //       for (let adjFace of this.adjacentFaces(face)) {
-  //         let adjMinHeight = this.faceMinHeight(adjFace);
-  //         if (adjMinHeight + this.faceWaterDepth[adjFace] < totalHeight) {
-  //           this.faceWaterDepthScratch[adjFace] = totalHeight - adjMinHeight;
-  //         }
-  //       }
-  //     }
-  //   }
-
-  //   this.faceWaterDepth.set(this.faceWaterDepthScratch);
-  // }
-
-  // calcVertexHeight(faceIdx: number, vertexIdx: number, minFaceHeight: number): number {
-  //   let minWaterDepth = Infinity;
-  //   for (let face of this.vertexToFaces[vertexIdx]) {
-  //     minWaterDepth = Math.min(minWaterDepth, this.faceWaterDepth[face]);
-  //     if (isNaN(minWaterDepth)) {
-  //       console.log("nan!!", face, this.faceWaterDepth[face]);
-  //     }
-  //   }
-
-
-  //   // if (minFaceHeight + minWaterDepth > this.heightmap[vertexIdx]) {
-  //     return this.heightmap[vertexIdx] + minWaterDepth;
-  //   // } else {
-  //   //   return this.heightmap[vertexIdx];
-  //   // }
-  // }
+    let changed = false;
+    for (let i = 0; i < this.scratchVertexWaterDepth.length; i++) {
+      if (Math.abs(this.scratchVertexWaterDepth[i] - this.vertexWaterDepth[i]) > 0.01) {
+        changed = true;
+        this.vertexWaterDepth.set(this.scratchVertexWaterDepth);
+        break;
+      }
+    }
+    return changed;
+  }
 
   /**
    * NOTE: a, b, and c are NOT indexes into the position buffer, they are arbitrary
@@ -209,24 +208,38 @@ export class TerrainGeometry extends THREE.BufferGeometry {
     const pB = this.xyzAtPointIndex(b);
     const pC = this.xyzAtPointIndex(c);
 
-    const minZ = Math.min(pA.z, pB.z, pC.z);
-    const maxZ = Math.max(pA.z, pB.z, pC.z);
-    const color = colorMap(
-      maxZ,
-      // don't color the face as water unless it's entirely underwater
-      0,//maxZ - minZ > this.faceWaterDepth[faceIdx] ? 0 : this.faceWaterDepth[faceIdx]
-    );
+    // switch face coloring modes: partially above water, pick the highest total point so the water doesn't
+    // appear to flow uphill, but when all are below water, pick the highest water depth to prevent flickering
+    let faceWaterDepth: number;
+    if (this.vertexWaterDepth[a] > 0 && this.vertexWaterDepth[b] > 0 && this.vertexWaterDepth[c] > 0) {
+      faceWaterDepth = Math.max(this.vertexWaterDepth[a], this.vertexWaterDepth[b], this.vertexWaterDepth[c]);
+    } else {
+      const pATotalHeight = pA.z + this.vertexWaterDepth[a];
+      const pBTotalHeight = pB.z + this.vertexWaterDepth[b];
+      const pCTotalHeight = pC.z + this.vertexWaterDepth[c];
+      const maxTotalHeight = Math.max(pATotalHeight, pBTotalHeight, pCTotalHeight);
+      faceWaterDepth =
+        this.vertexWaterDepth[maxTotalHeight == pATotalHeight ? a : maxTotalHeight == pBTotalHeight ? b : c];
+    }
+    // const faceWaterDepth = Math.max(this.vertexWaterDepth[a], this.vertexWaterDepth[b], this.vertexWaterDepth[c]);
+    const color = colorMap(Math.max(pA.z, pB.z, pC.z), faceWaterDepth);
 
     // set vertex colors
     for (let i = 0; i < 3; i++) {
       this.colors.setXYZ(faceIdx * 3 + i, color.r, color.g, color.b);
     }
+    // let color = colorMap(pA.z, this.vertexWaterDepth[a]);
+    // this.colors.setXYZ(faceIdx * 3 + 0, color.r, color.g, color.b);
+    // color = colorMap(pB.z, this.vertexWaterDepth[b]);
+    // this.colors.setXYZ(faceIdx * 3 + 1, color.r, color.g, color.b);
+    // color = colorMap(pC.z, this.vertexWaterDepth[c]);
+    // this.colors.setXYZ(faceIdx * 3 + 2, color.r, color.g, color.b);
 
     // const minFaceHeight = this.faceMinHeight(faceIdx);
 
-    this.positions.setXYZ(faceIdx * 3 + 0, pA.x, pA.y, pA.z);
-    this.positions.setXYZ(faceIdx * 3 + 1, pB.x, pB.y, pB.z);
-    this.positions.setXYZ(faceIdx * 3 + 2, pC.x, pC.y, pC.z);
+    this.positions.setXYZ(faceIdx * 3 + 0, pA.x, pA.y, pA.z + this.vertexWaterDepth[a]);
+    this.positions.setXYZ(faceIdx * 3 + 1, pB.x, pB.y, pB.z + this.vertexWaterDepth[b]);
+    this.positions.setXYZ(faceIdx * 3 + 2, pC.x, pC.y, pC.z + this.vertexWaterDepth[c]);
   }
 
   public setupVertices(colorMap: (z: number, waterDepth: number) => THREE.Color) {

@@ -17,14 +17,12 @@ function colorMap(height: number, waterDepth: number) {
     }
   }
 
-  if (waterDepth < 20) {
-    return new THREE.Color(0x475d9e); // light blue
-  } else if (waterDepth < 60) {
-    return new THREE.Color(0x384a80); // lightish blue
-  } else if (waterDepth < 80) {
-    return new THREE.Color(0x273459); // darkish blue
+  if (waterDepth < 40) {
+    return new THREE.Color(0x3E538E); // light blue
+  } else if (waterDepth < 90) {
+    return new THREE.Color(0x324371); // lightish blue
   } else {
-    return new THREE.Color(0x151c30); // dark blue
+    return new THREE.Color(0x273459); // darkish blue
   }
 }
 
@@ -41,6 +39,8 @@ class App {
   public terrain: TerrainGeometry;
   public terrainMesh: THREE.Mesh;
   public sheep: Sheep[];
+  public waterLevel: number;
+  public frame: number;
 
   constructor({
     backgroundColor = 0x000000,
@@ -51,6 +51,7 @@ class App {
     ],
     meshSize = 1000,
     seed = "nauthiel",
+    initialWaterLevel = -70,
   } = {}) {
     this.renderer = new THREE.WebGLRenderer({
       alpha: true,
@@ -103,6 +104,8 @@ class App {
     this.setSize();
 
     this.sheep = [];
+    this.waterLevel = initialWaterLevel;
+    this.frame = 0;
   }
 
   public setSize() {
@@ -114,15 +117,13 @@ class App {
     this.controls.update();
   }
 
-  public updateTerrain(newWaterLevel: number) {
-    // this.terrain.flood(newWaterLevel);
-    this.terrain.setupVertices(colorMap);
-  }
-
   public render() {
-    this.tick();
+    if (this.frame % 4 == 0) {
+      this.tick();
+    }
     this.renderer.render(this.scene, this.camera);
     this.controls.update();
+    this.frame++;
     requestAnimationFrame(() => this.render());
   }
 
@@ -147,6 +148,12 @@ class App {
     // }
     // this.terrain.colors.needsUpdate = true;
 
+    for (let v of this.terrain.faceToVertices[faceIndex]) {
+      if (this.terrain.vertexWaterDepth[v] > 0) {
+        return false;
+      }
+    }
+
     const faceSheepCount = this.countSheepOnFace(faceIndex);
     if (faceSheepCount >= 3) {
       return false;
@@ -170,7 +177,12 @@ class App {
     return true;
   }
 
-  tick() {
+  public tick() {
+    if (this.terrain.flood(this.waterLevel)) {
+      console.log("flood", this.waterLevel);
+      this.terrain.setupVertices(colorMap);
+    }
+
     for (let sheep of this.sheep) {
       if (Math.random() < 0.1) {
         // try to move the sheep
@@ -234,13 +246,6 @@ window.onload = () => {
   document.querySelector("main").addEventListener("click", onClick);
 
   const gui: any = new dat.GUI();
-  const options = {
-    waterLevel: -70,
-  };
-
-  const generate = () => {
-    app.updateTerrain(options.waterLevel);
-  };
 
   // simple filter to only react when the value actually changes, instead of on all focus lost events
   const onActualChange = <T>(controller: any, callback: (oldV: T, newV: T) => void) => {
@@ -266,18 +271,16 @@ window.onload = () => {
   //   "randomSeed"
   // );
 
-  onActualChange(gui.add(options, "waterLevel", -150, 150), generate);
   gui.add(
     {
       raiseWaterLevel: () => {
-        options.waterLevel++;
-        generate();
+        // options.waterLevel++;
+        // generate();
+        app.waterLevel++;
       },
     },
     "raiseWaterLevel"
   );
 
   app.render();
-
-  generate();
 };
