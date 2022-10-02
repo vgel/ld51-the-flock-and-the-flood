@@ -81,10 +81,13 @@ class App {
   public readonly controls: OrbitControls;
   public readonly scene: THREE.Scene;
 
-  public terrain: TerrainGeometry;
-  public terrainMesh: THREE.Mesh;
-  public oceanPlane: THREE.Mesh;
-  public rain: Rain;
+  public readonly terrain: TerrainGeometry;
+  public readonly terrainMesh: THREE.Mesh;
+  public readonly oceanPlane: THREE.Mesh;
+  public readonly rain: Rain;
+  public readonly flagSprite: THREE.Sprite;
+  public readonly meshSize: number;
+
   public sheep: Sheep[] = [];
   public faceSheepSlotFree: Record<number, [boolean, boolean, boolean]> = {};
   public flockingPoint: number | null = null;
@@ -92,7 +95,6 @@ class App {
   public waterCounter = 0;
   public frame = 0;
   public sheepStoredFood = 0;
-  public flagSprite: THREE.Sprite;
 
   constructor({
     backgroundColor = 0x4f4f4f,
@@ -106,6 +108,7 @@ class App {
     initialWaterLevel = -70,
   } = {}) {
     this.waterLevel = initialWaterLevel;
+    this.meshSize = meshSize;
 
     this.renderer = new THREE.WebGLRenderer({
       alpha: true,
@@ -149,7 +152,7 @@ class App {
     this.terrainMesh.frustumCulled = false;
     this.scene.add(this.terrainMesh);
 
-    this.rain = new Rain(new THREE.Color(0x8888FF), 5, 400, meshSize * 2);
+    this.rain = new Rain(new THREE.Color(0x8888ff), 5, 400, meshSize * 2);
     this.rain.points.position.set(meshSize / 2, meshSize / 2, 0);
     this.terrainMesh.add(this.rain.points);
 
@@ -165,9 +168,6 @@ class App {
 
     this.flagSprite = makeFlagSprite();
     this.terrainMesh.add(this.flagSprite);
-
-    const meshCenter = this.terrainMesh.position.clone().add(new THREE.Vector3(meshSize / 2, 0, -meshSize / 2));
-    this.controls.target.copy(meshCenter);
 
     for (const { light, position } of lights) {
       this.scene.add(light);
@@ -190,6 +190,12 @@ class App {
   public render() {
     // it doesn't move equal with the water level, but it only looks a little wonky
     this.oceanPlane.position.set(0, 0, this.waterLevel - 30);
+
+    this.controls.target.copy(this.terrainMesh.position);
+    this.controls.target.x += this.meshSize / 2;
+    this.controls.target.y += Math.max(0, this.waterLevel);
+    this.controls.target.z += -this.meshSize / 2;
+
     this.tick();
     this.renderer.render(this.scene, this.camera);
     this.controls.update();
@@ -419,7 +425,7 @@ class App {
     } else {
       this.flockingPoint = faceIndex;
     }
-    
+
     const { x, y, z } = this.terrain.xyzFaceCenter(this.flockingPoint);
     this.flagSprite.position.set(x, y, z + 10);
   }
