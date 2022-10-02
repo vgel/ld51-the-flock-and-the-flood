@@ -1,10 +1,11 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+// @ts-expect-error
 import dat from "dat.gui";
 
 import { TerrainGen, TerrainGeometry } from "./terrain";
 import { makeSheepSprite } from "./sprites";
-import { shuffle } from "./utils";
+import { assert, shuffle } from "./utils";
 
 function colorMap(height: number, waterDepth: number) {
   if (waterDepth <= 0) {
@@ -18,7 +19,7 @@ function colorMap(height: number, waterDepth: number) {
   }
 
   if (waterDepth < 40) {
-    return new THREE.Color(0x3E538E); // light blue
+    return new THREE.Color(0x3e538e); // light blue
   } else if (waterDepth < 90) {
     return new THREE.Color(0x324371); // lightish blue
   } else {
@@ -27,7 +28,34 @@ function colorMap(height: number, waterDepth: number) {
 }
 
 class Sheep {
+  movement: null | {
+    progress: number;
+    startPosition: THREE.Vector3;
+    endPosition: THREE.Vector3;
+  } = null;
+
   constructor(public sprite: THREE.Sprite, public faceIndex: number) {}
+
+  public tick() {
+    if (this.movement !== null) {
+      this.movement.progress += 1 / 10;
+      this.sprite.position.copy(this.movement.startPosition);
+      this.sprite.position.lerp(this.movement.endPosition, this.movement.progress);
+      if (this.movement.progress >= 1) {
+        this.sprite.position.copy(this.movement.endPosition);
+        this.movement = null;
+      }
+    }
+  }
+
+  public startMovement(towardsFaceIndex: number, endPosition: THREE.Vector3) {
+    this.faceIndex = towardsFaceIndex;
+    this.movement = {
+      progress: 0,
+      startPosition: this.sprite.position.clone(),
+      endPosition,
+    };
+  }
 }
 
 class App {
@@ -38,9 +66,10 @@ class App {
 
   public terrain: TerrainGeometry;
   public terrainMesh: THREE.Mesh;
-  public sheep: Sheep[];
+  public sheep: Sheep[] = [];
+  public flockingPoint: number | null = null;
   public waterLevel: number;
-  public frame: number;
+  public frame = 0;
 
   constructor({
     backgroundColor = 0x000000,
@@ -59,11 +88,12 @@ class App {
     });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setClearColor(backgroundColor, 1);
-    document.querySelector("main").appendChild(this.renderer.domElement);
+    document.querySelector("main")!.appendChild(this.renderer.domElement);
 
     this.camera = new THREE.PerspectiveCamera(fov, 0, nearPlane, farPlane); // aspect = 0 for now
     this.camera.position.fromArray(cameraPosition);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.maxPolarAngle = Math.PI / 2;
 
     this.scene = new THREE.Scene();
     this.scene.add(this.camera);
@@ -71,7 +101,7 @@ class App {
     const generator = new TerrainGen(
       150,
       (x, y) => {
-        return 0.6 - 2 * Math.sqrt(x ** 2 + y ** 2);
+        return 0.6 - 2.25 * Math.sqrt(x ** 2 + y ** 2);
       },
       5,
       3,
@@ -79,8 +109,8 @@ class App {
       0.5,
       seed
     );
-    this.terrain = new TerrainGeometry(meshSize, 35, generator);
-    this.terrain.setupVertices(colorMap);
+    this.terrain = new TerrainGeometry(meshSize, 35, colorMap, generator);
+    this.terrain.setupVertices();
     const terrainMaterial = new THREE.MeshPhongMaterial({
       vertexColors: true,
       flatShading: true,
@@ -103,9 +133,7 @@ class App {
     window.onresize = () => this.setSize();
     this.setSize();
 
-    this.sheep = [];
     this.waterLevel = initialWaterLevel;
-    this.frame = 0;
   }
 
   public setSize() {
@@ -118,9 +146,7 @@ class App {
   }
 
   public render() {
-    if (this.frame % 4 == 0) {
-      this.tick();
-    }
+    this.tick();
     this.renderer.render(this.scene, this.camera);
     this.controls.update();
     this.frame++;
@@ -137,7 +163,26 @@ class App {
     return faceSheepCount;
   }
 
-  trySetSheepOnFace(sheep: Sheep, faceIndex: number): boolean {
+  canSetSheepOnFace(faceIndex: number): boolean {
+    let waterCount = 0;
+    for (let v of this.terrain.faceToVertices[faceIndex]) {
+      if (this.terrain.vertexWaterDepth[v] > 0) {
+        waterCount++;
+      }
+    }
+    if (waterCount == 3) {
+      return false;
+    }
+
+    const faceSheepCount = this.countSheepOnFace(faceIndex);
+    if (faceSheepCount >= 3) {
+      return false;
+    }
+
+    return true;
+  }
+
+  setSheepOnFace(sheep: Sheep, faceIndex: number) {
     // for (let i = 0; i < 3; i++) {
     //   this.terrain.colors.setXYZ(faceIndex * 3 + i, 1, 0, 0);
     // }
@@ -148,79 +193,132 @@ class App {
     // }
     // this.terrain.colors.needsUpdate = true;
 
-    for (let v of this.terrain.faceToVertices[faceIndex]) {
-      if (this.terrain.vertexWaterDepth[v] > 0) {
-        return false;
-      }
-    }
-
-    const faceSheepCount = this.countSheepOnFace(faceIndex);
-    if (faceSheepCount >= 3) {
-      return false;
-    }
-
     const tPos = this.terrain.positions;
 
     const faceCenterX = (tPos.getX(faceIndex * 3) + tPos.getX(faceIndex * 3 + 1) + tPos.getX(faceIndex * 3 + 2)) / 3;
     const faceCenterY = (tPos.getY(faceIndex * 3) + tPos.getY(faceIndex * 3 + 1) + tPos.getY(faceIndex * 3 + 2)) / 3;
     const faceCenterZ = (tPos.getZ(faceIndex * 3) + tPos.getZ(faceIndex * 3 + 1) + tPos.getZ(faceIndex * 3 + 2)) / 3;
 
-    const vertex = faceIndex * 3 + faceSheepCount;
+    const vertex = faceIndex * 3 + this.countSheepOnFace(faceIndex);
     const wander = Math.random() + 1;
     const tx = (tPos.getX(vertex) + faceCenterX * wander) / (1 + wander);
     const ty = (tPos.getY(vertex) + faceCenterY * wander) / (1 + wander);
     const tz = (tPos.getZ(vertex) + faceCenterZ * wander) / (1 + wander);
 
-    sheep.sprite.position.set(tx, ty, tz + 7);
-    sheep.faceIndex = faceIndex;
+    sheep.startMovement(faceIndex, new THREE.Vector3(tx, ty, tz + 7));
 
-    return true;
+    // sheep.sprite.position.set(tx, ty, tz + 7);
+    // sheep.faceIndex = faceIndex;
   }
 
-  public tick() {
+  public slowTick() {
     if (this.terrain.flood(this.waterLevel)) {
       console.log("flood", this.waterLevel);
-      this.terrain.setupVertices(colorMap);
+      this.terrain.setupVertices();
     }
 
     for (let sheep of this.sheep) {
-      if (Math.random() < 0.1) {
-        // try to move the sheep
-        let adj = this.terrain.adjacentFaces(sheep.faceIndex);
+      let adj = this.terrain.adjacentFaces(sheep.faceIndex);
+      if (Math.random() < 0.02) {
+        // try to move the sheep randomly
         shuffle(adj);
         for (let adjFaceIndex of adj) {
-          if (this.trySetSheepOnFace(sheep, adjFaceIndex)) {
+          if (this.canSetSheepOnFace(adjFaceIndex)) {
+            this.setSheepOnFace(sheep, adjFaceIndex);
             break;
           }
+        }
+      } else if (sheep.movement == null) {
+        // try to move the sheep back towards the flocking point
+        assert(this.flockingPoint != null, "flocking point unexpectedly null!");
+        let target = this.terrain.xyFaceCenter(this.flockingPoint);
+        let best = sheep.faceIndex;
+        let bestXY = this.terrain.xyFaceCenter(best);
+        let bestDistSq = (bestXY.x - target.x) ** 2 + (bestXY.y - target.y) ** 2;
+        for (let adjFaceIndex of adj) {
+          if (!this.canSetSheepOnFace(adjFaceIndex)) {
+            continue;
+          }
+          const adjFaceXY = this.terrain.xyFaceCenter(adjFaceIndex);
+          const adjFaceDistSq = (adjFaceXY.x - target.x) ** 2 + (adjFaceXY.y - target.y) ** 2;
+          if (adjFaceDistSq < bestDistSq) {
+            best = adjFaceIndex;
+            bestXY = adjFaceXY;
+            bestDistSq = adjFaceDistSq;
+          }
+        }
+        if (best != sheep.faceIndex) {
+          this.setSheepOnFace(sheep, best);
         }
       }
     }
   }
 
-  public raycast(intersection: THREE.Intersection<THREE.Object3D>) {
-    const sheep = new Sheep(makeSheepSprite(), intersection.faceIndex);
-
-    if (this.trySetSheepOnFace(sheep, intersection.faceIndex)) {
-      this.terrainMesh.add(sheep.sprite);
-      this.sheep.push(sheep);
+  public tick() {
+    for (let sheep of this.sheep) {
+      sheep.tick();
     }
+
+    if (this.frame % 4 == 0) {
+      this.slowTick();
+    }
+  }
+
+  public raycast(intersection: THREE.Intersection<THREE.Object3D>) {
+    let { faceIndex } = intersection;
+    if (faceIndex == null) {
+      return;
+    }
+
+    if (this.flockingPoint === null) {
+      console.log("spawn flock");
+      this.flockingPoint = faceIndex;
+
+      // spawn initial flock
+      const tilesSet = new Set<number>();
+      tilesSet.add(this.flockingPoint);
+      for (let t of this.terrain.adjacentFaces(this.flockingPoint)) {
+        tilesSet.add(t);
+        for (let tt of this.terrain.adjacentFaces(t)) {
+          tilesSet.add(tt);
+        }
+      }
+      const tiles = [...tilesSet];
+
+      for (let i = 0; i < 20; i++) {
+        shuffle(tiles);
+        const sheep = new Sheep(makeSheepSprite(), faceIndex);
+
+        for (let tile of tiles) {
+          console.log(tile);
+          if (this.canSetSheepOnFace(tile)) {
+            console.log("setting sheep on", tile);
+            this.setSheepOnFace(sheep, tile);
+            this.terrainMesh.add(sheep.sprite);
+            this.sheep.push(sheep);
+            break;
+          }
+        }
+      }
+    } else {
+      this.flockingPoint = faceIndex;
+    }
+  }
+
+  public raycastHover(intersection: THREE.Intersection<THREE.Object3D>) {
+    let { faceIndex } = intersection;
+    if (faceIndex == null) {
+      return;
+    }
+    this.terrain.setHighlightedFace(faceIndex);
   }
 }
 
-const debounce = (fn: (...a: any) => void, time: number) => {
-  let timeout: number;
-
-  return function (...args: any[]) {
-    const functionCall = () => fn.apply(this, args);
-
-    clearTimeout(timeout);
-    timeout = setTimeout(functionCall, time);
-  };
-};
-
 window.onload = () => {
   const app = new App();
-  window["app"] = app;
+  (window as any)["app"] = app;
+  const main = document.querySelector("main");
+  assert(main !== null, "missing main element!");
 
   const caster = new THREE.Raycaster();
   function onClick(event: MouseEvent) {
@@ -242,23 +340,27 @@ window.onload = () => {
       }
     }
   }
+  function onMove(event: MouseEvent) {
+    const mouse = new THREE.Vector2();
+    mouse.x = (event.clientX / app.renderer.domElement.offsetWidth) * 2 - 1;
+    mouse.y = -(event.clientY / app.renderer.domElement.offsetHeight) * 2 + 1;
 
-  document.querySelector("main").addEventListener("click", onClick);
+    caster.setFromCamera(mouse, app.camera);
+
+    const intersects = caster.intersectObjects([app.terrainMesh]);
+
+    if (intersects.length > 0) {
+      for (let m of intersects) {
+        if (m.object === app.terrainMesh) {
+          app.raycastHover(m);
+        }
+      }
+    }
+  }
+  main.addEventListener("click", onClick);
+  main.addEventListener("mousemove", onMove);
 
   const gui: any = new dat.GUI();
-
-  // simple filter to only react when the value actually changes, instead of on all focus lost events
-  const onActualChange = <T>(controller: any, callback: (oldV: T, newV: T) => void) => {
-    let currentValue: T = controller.getValue();
-    controller.onChange(
-      debounce((newValue) => {
-        if (newValue !== currentValue) {
-          callback(currentValue, newValue);
-          currentValue = newValue;
-        }
-      }, 10)
-    );
-  };
 
   // onActualChange(gui.add(options, "seed").listen(), generate);
   // gui.add(

@@ -53,20 +53,23 @@ export class TerrainGeometry extends THREE.BufferGeometry {
   public readonly colors: THREE.BufferAttribute;
   public readonly heightmap: Float32Array;
 
-  public vertexToFaces: Record<number, number[]>;
-  public faceToVertices: Record<number, number[]>;
+  public vertexToFaces: Record<number, number[]> = {};
+  public faceToVertices: Record<number, number[]> = {};
 
   public vertexWaterDepth: Float32Array;
   scratchVertexWaterDepth: Float32Array;
 
+  highlightedFace: number | null = null;
+
   constructor(
     public readonly width: number,
     public readonly resolution: number, // quads per side
+    public readonly colorMap: (z: number, waterDepth: number) => THREE.Color,
     generator: TerrainGen
   ) {
     super();
 
-    const bufferSize = (this.numUniqueVertices * 2 + 1) * 9;
+    const bufferSize = (this.numUniqueVertices() * 2 + 1) * 9;
 
     this.positions = new THREE.BufferAttribute(new Float32Array(bufferSize), 3);
     this.setAttribute("position", this.positions);
@@ -74,8 +77,8 @@ export class TerrainGeometry extends THREE.BufferGeometry {
     this.colors = new THREE.BufferAttribute(new Float32Array(bufferSize), 3);
     this.setAttribute("color", this.colors);
 
-    this.heightmap = new Float32Array(this.numUniqueVertices);
-    for (let i = 0; i < this.numUniqueVertices; i++) {
+    this.heightmap = new Float32Array(this.numUniqueVertices());
+    for (let i = 0; i < this.numUniqueVertices(); i++) {
       const { x, y } = this.xyAtPointIndex(i);
       const sideLen = this.width / this.resolution;
       const heightStep = Math.sqrt(sideLen ** 2 + (sideLen / 2) ** 2); // solve the height of equilateral triangle
@@ -83,20 +86,29 @@ export class TerrainGeometry extends THREE.BufferGeometry {
       this.heightmap[i] = generator.sample(x / this.width - 0.5, y / height - 0.5);
     }
 
-    this.vertexWaterDepth = new Float32Array(this.numUniqueVertices);
+    this.vertexWaterDepth = new Float32Array(this.numUniqueVertices());
     this.vertexWaterDepth.fill(0);
     this.scratchVertexWaterDepth = new Float32Array(this.vertexWaterDepth.length);
     this.scratchVertexWaterDepth.fill(0);
   }
 
   // n quads per row,, n rows
-  public get numQuads(): number {
+  public numQuads(): number {
     return this.resolution ** 2;
   }
 
   // for a (e.g.) triangles = 4 mesh, we want *5* points per row/col
-  public get numUniqueVertices(): number {
+  public numUniqueVertices(): number {
     return (this.resolution + 1) ** 2;
+  }
+
+  public setHighlightedFace(newHighlightedFace: number) {
+    const oldHighlightedFace = this.highlightedFace;
+    this.highlightedFace = newHighlightedFace;
+    if (oldHighlightedFace != null) {
+      this.setFaceColor(this.getFaceColor(oldHighlightedFace), oldHighlightedFace);
+    }
+    this.setFaceColor(this.getFaceColor(this.highlightedFace), this.highlightedFace);
   }
 
   // To form the triangles for a mesh, it's easier to think in
@@ -122,7 +134,7 @@ export class TerrainGeometry extends THREE.BufferGeometry {
   //     odd rows:  n,     n + 1, n + r + 1 ; n + 1, n + r + 2, n + r + 1
   //     even rows: n, n + r + 2, n + r + 1 ;     n,     n + 1, n + r + 2
 
-  private xyAtPointIndex(index: number): { x: number; y: number } {
+  public xyAtPointIndex(index: number): { x: number; y: number } {
     const sideLen = this.width / this.resolution;
     const heightStep = Math.sqrt(sideLen ** 2 + (sideLen / 2) ** 2); // solve the height of equilateral triangle
 
@@ -137,16 +149,27 @@ export class TerrainGeometry extends THREE.BufferGeometry {
     };
   }
 
-  private xyzAtPointIndex(index: number): { x: number; y: number; z: number } {
+  public xyzAtPointIndex(index: number): { x: number; y: number; z: number } {
     const { x, y } = this.xyAtPointIndex(index);
     const z = this.heightmap[index];
     return { x, y, z };
   }
 
+  public xyFaceCenter(faceIndex: number): { x: number; y: number } {
+    const [a, b, c] = this.faceToVertices[faceIndex];
+    const { x: ax, y: ay } = this.xyAtPointIndex(a);
+    const { x: bx, y: by } = this.xyAtPointIndex(b);
+    const { x: cx, y: cy } = this.xyAtPointIndex(c);
+    return {
+      x: (ax + bx + cx) / 3,
+      y: (ay + by + cy) / 3,
+    };
+  }
+
   public flood(edgeWaterLevel: number): boolean {
     this.scratchVertexWaterDepth.set(this.vertexWaterDepth);
 
-    for (let i = 0; i < this.numUniqueVertices; i++) {
+    for (let i = 0; i < this.numUniqueVertices(); i++) {
       const row = Math.floor(i / (this.resolution + 1));
       const col = i % (this.resolution + 1);
       const isEdge = row == 0 || col == 0 || row == this.resolution || col == this.resolution;
@@ -183,27 +206,8 @@ export class TerrainGeometry extends THREE.BufferGeometry {
     return changed;
   }
 
-  /**
-   * NOTE: a, b, and c are NOT indexes into the position buffer, they are arbitrary
-   * numbers that we generate in setupVertices.
-   */
-  private setFace(
-    colorMap: (z: number, waterDepth: number) => THREE.Color,
-    faceIdx: number,
-    a: number,
-    b: number,
-    c: number
-  ) {
-    // set positions / adjacency
-    // TODO: kinda wasteful to set this each time it's modified instead of checking if dirty
-    this.faceToVertices[faceIdx] = [a, b, c];
-    this.vertexToFaces[a] ??= [];
-    this.vertexToFaces[a].push(faceIdx);
-    this.vertexToFaces[b] ??= [];
-    this.vertexToFaces[b].push(faceIdx);
-    this.vertexToFaces[c] ??= [];
-    this.vertexToFaces[c].push(faceIdx);
-
+  private getFaceColor(faceIdx: number): THREE.Color {
+    const [a, b, c] = this.faceToVertices[faceIdx];
     const pA = this.xyzAtPointIndex(a);
     const pB = this.xyzAtPointIndex(b);
     const pC = this.xyzAtPointIndex(c);
@@ -221,40 +225,75 @@ export class TerrainGeometry extends THREE.BufferGeometry {
       faceWaterDepth =
         this.vertexWaterDepth[maxTotalHeight == pATotalHeight ? a : maxTotalHeight == pBTotalHeight ? b : c];
     }
-    const color = colorMap(Math.max(pA.z, pB.z, pC.z), faceWaterDepth);
-    // set vertex colors
+
+    const color = this.colorMap(Math.max(pA.z, pB.z, pC.z), faceWaterDepth);
+    if (faceIdx === this.highlightedFace) {
+      color.multiplyScalar(1.5);
+    }
+    return color;
+  }
+
+  private setFaceColor(color: THREE.Color, faceIdx: number) {
     for (let i = 0; i < 3; i++) {
       this.colors.setXYZ(faceIdx * 3 + i, color.r, color.g, color.b);
     }
+    // cheap to set (bumps internal version number)
+    (this.attributes.color as THREE.BufferAttribute).needsUpdate = true;
+  }
+
+  /**
+   * NOTE: a, b, and c are NOT indexes into the position buffer, they are semi-arbitrary
+   * numbers that we generate in setupVertices that uniquely identify vertices.
+   */
+  private setFace(
+    faceIdx: number,
+    a: number,
+    b: number,
+    c: number
+  ) {
+    // set positions / adjacency
+    // TODO: kinda wasteful to set this each time it's modified instead of checking if dirty
+    this.faceToVertices[faceIdx] = [a, b, c];
+    this.vertexToFaces[a] ??= [];
+    this.vertexToFaces[a].push(faceIdx);
+    this.vertexToFaces[b] ??= [];
+    this.vertexToFaces[b].push(faceIdx);
+    this.vertexToFaces[c] ??= [];
+    this.vertexToFaces[c].push(faceIdx);
+
+    this.setFaceColor(this.getFaceColor(faceIdx), faceIdx);
+
+    const pA = this.xyzAtPointIndex(a);
+    const pB = this.xyzAtPointIndex(b);
+    const pC = this.xyzAtPointIndex(c);
 
     this.positions.setXYZ(faceIdx * 3 + 0, pA.x, pA.y, pA.z + this.vertexWaterDepth[a]);
     this.positions.setXYZ(faceIdx * 3 + 1, pB.x, pB.y, pB.z + this.vertexWaterDepth[b]);
     this.positions.setXYZ(faceIdx * 3 + 2, pC.x, pC.y, pC.z + this.vertexWaterDepth[c]);
   }
 
-  public setupVertices(colorMap: (z: number, waterDepth: number) => THREE.Color) {
+  public setupVertices() {
     const r = this.resolution;
 
     this.faceToVertices = {};
     this.vertexToFaces = {};
 
-    for (let n = 0; n < this.numUniqueVertices; n++) {
+    for (let n = 0; n < this.numUniqueVertices(); n++) {
       const row = Math.floor(n / (r + 1));
       const col = n % (r + 1);
 
       if (row !== r && col !== r) {
         const rowIsEven = row % 2 === 0;
         if (!rowIsEven) {
-          this.setFace(colorMap, n * 2 + 0, n, n + 1, n + r + 1);
-          this.setFace(colorMap, n * 2 + 1, n + 1, n + r + 2, n + r + 1);
+          this.setFace(n * 2 + 0, n, n + 1, n + r + 1);
+          this.setFace(n * 2 + 1, n + 1, n + r + 2, n + r + 1);
         } else {
-          this.setFace(colorMap, n * 2 + 0, n, n + r + 2, n + r + 1);
-          this.setFace(colorMap, n * 2 + 1, n, n + 1, n + r + 2);
+          this.setFace(n * 2 + 0, n, n + r + 2, n + r + 1);
+          this.setFace(n * 2 + 1, n, n + 1, n + r + 2);
         }
       }
 
       (this.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-      (this.attributes.color as THREE.BufferAttribute).needsUpdate = true;
     }
 
     this.computeBoundingSphere();

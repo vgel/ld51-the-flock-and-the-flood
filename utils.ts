@@ -12,3 +12,9 @@ export function shuffle(array: unknown[]) {
     [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
   }
 }
+
+export function assert(condition: any, msg: string): asserts condition {
+  if (!condition) {
+    throw new Error(`assertion failed: ${msg}`);
+  }
+}
