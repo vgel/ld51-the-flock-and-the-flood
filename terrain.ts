@@ -221,21 +221,11 @@ export class TerrainGeometry extends THREE.BufferGeometry {
       faceWaterDepth =
         this.vertexWaterDepth[maxTotalHeight == pATotalHeight ? a : maxTotalHeight == pBTotalHeight ? b : c];
     }
-    // const faceWaterDepth = Math.max(this.vertexWaterDepth[a], this.vertexWaterDepth[b], this.vertexWaterDepth[c]);
     const color = colorMap(Math.max(pA.z, pB.z, pC.z), faceWaterDepth);
-
     // set vertex colors
     for (let i = 0; i < 3; i++) {
       this.colors.setXYZ(faceIdx * 3 + i, color.r, color.g, color.b);
     }
-    // let color = colorMap(pA.z, this.vertexWaterDepth[a]);
-    // this.colors.setXYZ(faceIdx * 3 + 0, color.r, color.g, color.b);
-    // color = colorMap(pB.z, this.vertexWaterDepth[b]);
-    // this.colors.setXYZ(faceIdx * 3 + 1, color.r, color.g, color.b);
-    // color = colorMap(pC.z, this.vertexWaterDepth[c]);
-    // this.colors.setXYZ(faceIdx * 3 + 2, color.r, color.g, color.b);
-
-    // const minFaceHeight = this.faceMinHeight(faceIdx);
 
     this.positions.setXYZ(faceIdx * 3 + 0, pA.x, pA.y, pA.z + this.vertexWaterDepth[a]);
     this.positions.setXYZ(faceIdx * 3 + 1, pB.x, pB.y, pB.z + this.vertexWaterDepth[b]);

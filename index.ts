@@ -274,8 +274,6 @@ window.onload = () => {
   gui.add(
     {
       raiseWaterLevel: () => {
-        // options.waterLevel++;
-        // generate();
         app.waterLevel++;
       },
     },
