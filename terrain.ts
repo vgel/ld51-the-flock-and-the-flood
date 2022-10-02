@@ -37,6 +37,16 @@ export class TerrainGen {
     const per = Math.pow(this.persistence, octave);
     return this.noise(x * lac, y * lac, octave / this.octaves) * per;
   }
+
+  public fertility(x: number, y: number): number {
+    // Z offset to avoid correlation with terrain
+    const raw = (this.noise(x * 5, y * 5, 1000) + 1) / 2;
+
+    const distFromCenter = Math.sqrt(x**2 + y**2);
+
+    const f = Math.max(0, Math.min(1, raw * 1.5 * distFromCenter + 0.1));
+    return f > 0.5 ? f + 2 : f;
+  }
 }
 
 export class TerrainGeometry extends THREE.BufferGeometry {
@@ -55,6 +65,7 @@ export class TerrainGeometry extends THREE.BufferGeometry {
 
   public vertexToFaces: Record<number, number[]>;
   public faceToVertices: Record<number, number[]>;
+  public faceGrass: Record<number, number>;
 
   public vertexWaterDepth: Float32Array;
   scratchVertexWaterDepth: Float32Array;
@@ -64,7 +75,7 @@ export class TerrainGeometry extends THREE.BufferGeometry {
   constructor(
     public readonly width: number,
     public readonly resolution: number, // quads per side
-    public readonly colorMap: (z: number, waterDepth: number) => THREE.Color,
+    public readonly colorMap: (z: number, grassAmount: number, waterDepth: number) => THREE.Color,
     generator: TerrainGen
   ) {
     super();
@@ -77,12 +88,13 @@ export class TerrainGeometry extends THREE.BufferGeometry {
     this.colors = new THREE.BufferAttribute(new Float32Array(bufferSize), 3);
     this.setAttribute("color", this.colors);
 
+    const sideLen = this.width / this.resolution;
+    const heightStep = Math.sqrt(sideLen ** 2 + (sideLen / 2) ** 2); // solve the height of equilateral triangle
+    const height = heightStep * this.resolution;
+
     this.heightmap = new Float32Array(this.numUniqueVertices());
     for (let i = 0; i < this.numUniqueVertices(); i++) {
       const { x, y } = this.xyAtPointIndex(i);
-      const sideLen = this.width / this.resolution;
-      const heightStep = Math.sqrt(sideLen ** 2 + (sideLen / 2) ** 2); // solve the height of equilateral triangle
-      const height = heightStep * this.resolution;
       this.heightmap[i] = generator.sample(x / this.width - 0.5, y / height - 0.5);
     }
 
@@ -93,6 +105,7 @@ export class TerrainGeometry extends THREE.BufferGeometry {
 
     this.faceToVertices = {};
     this.vertexToFaces = {};
+    this.faceGrass = {};
 
     const initFace = (faceIdx: number, a: number, b: number, c: number) => {
       this.faceToVertices[faceIdx] = [a, b, c];
@@ -102,6 +115,9 @@ export class TerrainGeometry extends THREE.BufferGeometry {
       this.vertexToFaces[b].push(faceIdx);
       this.vertexToFaces[c] ??= [];
       this.vertexToFaces[c].push(faceIdx);
+
+      const { x, y } = this.xyFaceCenter(faceIdx);
+      this.faceGrass[faceIdx] = generator.fertility(x / this.width - 0.5, y / height - 0.5);
     };
 
     const r = this.resolution;
@@ -120,7 +136,6 @@ export class TerrainGeometry extends THREE.BufferGeometry {
         }
       }
     }
-
   }
 
   // n quads per row,, n rows
@@ -257,7 +272,7 @@ export class TerrainGeometry extends THREE.BufferGeometry {
         this.vertexWaterDepth[maxTotalHeight == pATotalHeight ? a : maxTotalHeight == pBTotalHeight ? b : c];
     }
 
-    const color = this.colorMap(Math.max(pA.z, pB.z, pC.z), faceWaterDepth);
+    const color = this.colorMap(Math.max(pA.z, pB.z, pC.z), this.faceGrass[faceIdx], faceWaterDepth);
     if (faceIdx === this.highlightedFace) {
       color.multiplyScalar(1.5);
     }
@@ -276,12 +291,7 @@ export class TerrainGeometry extends THREE.BufferGeometry {
    * NOTE: a, b, and c are NOT indexes into the position buffer, they are semi-arbitrary
    * numbers that we generate in setupVertices that uniquely identify vertices.
    */
-  private setFace(
-    faceIdx: number,
-    a: number,
-    b: number,
-    c: number
-  ) {
+  private setFace(faceIdx: number, a: number, b: number, c: number) {
     this.setFaceColor(this.getFaceColor(faceIdx), faceIdx);
 
     const pA = this.xyzAtPointIndex(a);
@@ -332,5 +342,14 @@ export class TerrainGeometry extends THREE.BufferGeometry {
       }
     }
     return [...adj.entries()].filter(([_, v]) => v == 2).map(([k, v]) => k);
+  }
+
+  public faceVerticesAllWater(faceIdx: number): boolean {
+    for (let v of this.faceToVertices[faceIdx]) {
+      if (this.vertexWaterDepth[v] === 0) {
+        return false;
+      }
+    }
+    return true;
   }
 }

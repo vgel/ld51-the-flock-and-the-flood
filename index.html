@@ -3,8 +3,60 @@
   <style>
     body, html { padding: 0; margin: 0; }
     main { width: 100vw; height: 100vh; }
+
+    #ui {
+      position: absolute;
+      top: 0; left: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 4px;
+      gap: 8px;
+      color: white;
+      font-family: system-ui;
+    }
+
+    #ui > div {
+      display: flex;
+      flex-direction: row;
+      gap: 8px;
+      height: 32px;
+      align-items: center;
+    }
+
+    .icon {
+      width: 32px;
+      height: 32px;
+      display: inline-block;
+      image-rendering: pixelated;
+      background-image: url("sprites.png");
+      background-size: 2000% 100%;
+    }
+
+    .sheep-icon { background-position: 0% 0%; }
+    .water-icon { background-position: 5.3% 0%; }
+
+    .icon-label {
+      height: 32px;
+      line-height: 32px;
+      vertical-align: middle;
+    }
+
+    progress#sheep-food { accent-color: #3c622d; }
+    progress#water-level { accent-color: #273459 }
   </style>
   <script src="./bundle.js"></script>
 </head>
 
-<main></main>
+<main>
+  <section id="ui">
+    <div>
+      <span class="icon sheep-icon"></span>
+      <progress id="sheep-food" value="0"></progress>
+      <span id="sheep-count" class="icon-label"></span>
+    </div>
+    <div>
+      <span class="icon water-icon"></span>
+      <progress id="water-level" value="0"></progress>
+    </div>
+  </section>
+</main>

@@ -1,20 +1,23 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-// @ts-expect-error
-import dat from "dat.gui";
 
 import { TerrainGen, TerrainGeometry } from "./terrain";
 import { makeSheepSprite } from "./sprites";
 import { assert, shuffle } from "./utils";
+import { Rain } from "./rain";
 
-function colorMap(height: number, waterDepth: number) {
+function colorMap(height: number, grassAmount: number, waterDepth: number) {
   if (waterDepth <= 0) {
     if (height > 120) {
       return new THREE.Color(0xcccccc); // white
     } else if (height > 30) {
       return new THREE.Color(0x6e5f3f); // brown
-    } else {
+    } else if (grassAmount <= 0.05) {
+      return new THREE.Color(0xc1cc8f); // sage / yellow
+    } else if (grassAmount < 0.5) {
       return new THREE.Color(0x5e9c48); // green
+    } else {
+      return new THREE.Color(0x3c622d);
     }
   }
 
@@ -28,13 +31,21 @@ function colorMap(height: number, waterDepth: number) {
 }
 
 class Sheep {
+  public faceIndex: number = -1;
+  public slot: number = 0;
+  public sprite: THREE.Sprite;
+  public isDead = false;
+
   movement: null | {
     progress: number;
     startPosition: THREE.Vector3;
     endPosition: THREE.Vector3;
   } = null;
 
-  constructor(public sprite: THREE.Sprite, public faceIndex: number) {}
+  constructor() {
+    this.sprite = makeSheepSprite();
+    this.sprite.position.set(0, 0, 1000);
+  }
 
   public tick() {
     if (this.movement !== null) {
@@ -48,8 +59,14 @@ class Sheep {
     }
   }
 
-  public startMovement(towardsFaceIndex: number, endPosition: THREE.Vector3) {
+  public die() {
+    this.isDead = true;
+    this.sprite.removeFromParent();
+  }
+
+  public startMovement(towardsFaceIndex: number, slot: number, endPosition: THREE.Vector3) {
     this.faceIndex = towardsFaceIndex;
+    this.slot = slot;
     this.movement = {
       progress: 0,
       startPosition: this.sprite.position.clone(),
@@ -66,13 +83,17 @@ class App {
 
   public terrain: TerrainGeometry;
   public terrainMesh: THREE.Mesh;
+  public oceanPlane: THREE.Mesh;
+  public rain: Rain;
   public sheep: Sheep[] = [];
+  public faceSheepSlotFree: Record<number, [boolean, boolean, boolean]> = {};
   public flockingPoint: number | null = null;
   public waterLevel: number;
   public frame = 0;
+  public sheepStoredFood = 0;
 
   constructor({
-    backgroundColor = 0x000000,
+    backgroundColor = 0x4f4f4f,
     camera: { fov = 70, nearPlane = 0.01, farPlane = 1e5, position: cameraPosition = [450, 650, 250] } = {},
     lights = [
       { light: new THREE.HemisphereLight(0x000000, 0xffffff, 0.95), position: [0, -50, -100] },
@@ -82,6 +103,8 @@ class App {
     seed = "nauthiel",
     initialWaterLevel = -70,
   } = {}) {
+    this.waterLevel = initialWaterLevel;
+
     this.renderer = new THREE.WebGLRenderer({
       alpha: true,
       antialias: true,
@@ -93,10 +116,12 @@ class App {
     this.camera = new THREE.PerspectiveCamera(fov, 0, nearPlane, farPlane); // aspect = 0 for now
     this.camera.position.fromArray(cameraPosition);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.maxPolarAngle = Math.PI / 2;
+    this.controls.maxPolarAngle = Math.PI / 2.5;
 
     this.scene = new THREE.Scene();
     this.scene.add(this.camera);
+
+    this.scene.fog = new THREE.FogExp2(backgroundColor, 0.0005);
 
     const generator = new TerrainGen(
       150,
@@ -122,6 +147,20 @@ class App {
     this.terrainMesh.frustumCulled = false;
     this.scene.add(this.terrainMesh);
 
+    this.rain = new Rain(new THREE.Color(0x8888FF), 5, 400, meshSize * 2);
+    this.rain.points.position.set(meshSize / 2, meshSize / 2, 0);
+    this.terrainMesh.add(this.rain.points);
+
+    const planeGeometry = new THREE.PlaneGeometry(100000, 100000, 100, 100);
+    this.oceanPlane = new THREE.Mesh(
+      planeGeometry,
+      new THREE.MeshPhongMaterial({
+        flatShading: true,
+        color: 0x273459,
+      })
+    );
+    this.terrainMesh.add(this.oceanPlane);
+
     const meshCenter = this.terrainMesh.position.clone().add(new THREE.Vector3(meshSize / 2, 0, -meshSize / 2));
     this.controls.target.copy(meshCenter);
 
@@ -132,8 +171,6 @@ class App {
 
     window.onresize = () => this.setSize();
     this.setSize();
-
-    this.waterLevel = initialWaterLevel;
   }
 
   public setSize() {
@@ -146,11 +183,12 @@ class App {
   }
 
   public render() {
+    // it doesn't move equal with the water level, but it only looks a little wonky
+    this.oceanPlane.position.set(0, 0, this.waterLevel - 30);
     this.tick();
     this.renderer.render(this.scene, this.camera);
     this.controls.update();
     this.frame++;
-    requestAnimationFrame(() => this.render());
   }
 
   countSheepOnFace(faceIndex: number): number {
@@ -164,22 +202,16 @@ class App {
   }
 
   canSetSheepOnFace(faceIndex: number): boolean {
-    let waterCount = 0;
-    for (let v of this.terrain.faceToVertices[faceIndex]) {
-      if (this.terrain.vertexWaterDepth[v] > 0) {
-        waterCount++;
-      }
-    }
-    if (waterCount == 3) {
+    if (this.terrain.faceVerticesAllWater(faceIndex)) {
       return false;
     }
 
-    const faceSheepCount = this.countSheepOnFace(faceIndex);
-    if (faceSheepCount >= 3) {
-      return false;
+    const slots = this.faceSheepSlotFree[faceIndex];
+    if (!slots) {
+      return true;
+    } else {
+      return slots[0] || slots[1] || slots[2];
     }
-
-    return true;
   }
 
   setSheepOnFace(sheep: Sheep, faceIndex: number) {
@@ -199,16 +231,62 @@ class App {
     const faceCenterY = (tPos.getY(faceIndex * 3) + tPos.getY(faceIndex * 3 + 1) + tPos.getY(faceIndex * 3 + 2)) / 3;
     const faceCenterZ = (tPos.getZ(faceIndex * 3) + tPos.getZ(faceIndex * 3 + 1) + tPos.getZ(faceIndex * 3 + 2)) / 3;
 
-    const vertex = faceIndex * 3 + this.countSheepOnFace(faceIndex);
-    const wander = Math.random() + 1;
+    this.faceSheepSlotFree[faceIndex] ??= [true, true, true];
+    const slots = [0, 1, 2];
+    shuffle(slots);
+    let slot;
+    for (let i of slots) {
+      if (this.faceSheepSlotFree[faceIndex][i]) {
+        slot = i;
+        break;
+      }
+    }
+    if (slot === undefined) {
+      console.error("caller failed to check face was available");
+      return;
+    }
+    if (this.faceSheepSlotFree[sheep.faceIndex]) {
+      this.faceSheepSlotFree[sheep.faceIndex][sheep.slot] = true;
+    }
+    this.faceSheepSlotFree[faceIndex][slot] = false;
+
+    const vertex = faceIndex * 3 + slot;
+    const wander = 1; //Math.random() + 1;
     const tx = (tPos.getX(vertex) + faceCenterX * wander) / (1 + wander);
     const ty = (tPos.getY(vertex) + faceCenterY * wander) / (1 + wander);
     const tz = (tPos.getZ(vertex) + faceCenterZ * wander) / (1 + wander);
 
-    sheep.startMovement(faceIndex, new THREE.Vector3(tx, ty, tz + 7));
+    sheep.startMovement(faceIndex, slot, new THREE.Vector3(tx, ty, tz + 7));
 
     // sheep.sprite.position.set(tx, ty, tz + 7);
     // sheep.faceIndex = faceIndex;
+  }
+
+  trySpawnSheep(): boolean {
+    let seen = new Set<number>();
+    let faces = [this.flockingPoint!];
+
+    while (faces.length > 0) {
+      let face = faces.shift()!;
+      if (seen.has(face)) {
+        continue;
+      }
+      if (this.canSetSheepOnFace(face)) {
+        const sheep = new Sheep();
+        this.setSheepOnFace(sheep, face);
+        this.terrainMesh.add(sheep.sprite);
+        this.sheep.push(sheep);
+        return true;
+      }
+      seen.add(face);
+      for (const adj of this.terrain.adjacentFaces(face)) {
+        if (!seen.has(adj)) {
+          faces.push(adj);
+        }
+      }
+    }
+
+    return false;
   }
 
   public slowTick() {
@@ -218,8 +296,12 @@ class App {
     }
 
     for (let sheep of this.sheep) {
+      if (sheep.movement !== null) {
+        continue;
+      }
+
       let adj = this.terrain.adjacentFaces(sheep.faceIndex);
-      if (Math.random() < 0.02) {
+      if (Math.random() < 0.005) {
         // try to move the sheep randomly
         shuffle(adj);
         for (let adjFaceIndex of adj) {
@@ -228,7 +310,7 @@ class App {
             break;
           }
         }
-      } else if (sheep.movement == null) {
+      } else {
         // try to move the sheep back towards the flocking point
         assert(this.flockingPoint != null, "flocking point unexpectedly null!");
         let target = this.terrain.xyFaceCenter(this.flockingPoint);
@@ -251,13 +333,39 @@ class App {
           this.setSheepOnFace(sheep, best);
         }
       }
+
+      const currentGrass = this.terrain.faceGrass[sheep.faceIndex];
+      const eaten = Math.min(currentGrass, 0.005);
+      this.sheepStoredFood += eaten;
+      this.terrain.faceGrass[sheep.faceIndex] -= eaten;
     }
+
+    if (this.sheepStoredFood > 5) {
+      if (this.trySpawnSheep()) {
+        console.log("spawned sheep");
+        this.sheepStoredFood -= 5;
+      }
+    }
+
+    if (this.frame % 600 == 0) {
+      this.waterLevel += 5;
+    }
+
+    this.terrain.setupVertices();
   }
 
   public tick() {
+    this.rain.tick();
+
     for (let sheep of this.sheep) {
-      sheep.tick();
+      if (this.terrain.faceVerticesAllWater(sheep.faceIndex)) {
+        sheep.die();
+      } else {
+        sheep.tick();
+      }
     }
+
+    this.sheep = this.sheep.filter((sheep) => !sheep.isDead);
 
     if (this.frame % 4 == 0) {
       this.slowTick();
@@ -267,6 +375,9 @@ class App {
   public raycast(intersection: THREE.Intersection<THREE.Object3D>) {
     let { faceIndex } = intersection;
     if (faceIndex == null) {
+      return;
+    }
+    if (this.terrain.faceVerticesAllWater(faceIndex)) {
       return;
     }
 
@@ -287,12 +398,10 @@ class App {
 
       for (let i = 0; i < 20; i++) {
         shuffle(tiles);
-        const sheep = new Sheep(makeSheepSprite(), faceIndex);
 
         for (let tile of tiles) {
-          console.log(tile);
           if (this.canSetSheepOnFace(tile)) {
-            console.log("setting sheep on", tile);
+            const sheep = new Sheep();
             this.setSheepOnFace(sheep, tile);
             this.terrainMesh.add(sheep.sprite);
             this.sheep.push(sheep);
@@ -357,30 +466,28 @@ window.onload = () => {
       }
     }
   }
-  main.addEventListener("click", onClick);
+  main.addEventListener("mousedown", onClick);
   main.addEventListener("mousemove", onMove);
 
-  const gui: any = new dat.GUI();
+  // seed = Math.random().toString(36).substring(2);
 
-  // onActualChange(gui.add(options, "seed").listen(), generate);
-  // gui.add(
-  //   {
-  //     randomSeed: () => {
-  //       options.seed = Math.random().toString(36).substring(2);
-  //       generate();
-  //     },
-  //   },
-  //   "randomSeed"
-  // );
+  const sheepCountElem = document.querySelector("#sheep-count")! as HTMLSpanElement;
+  const sheepFoodElem = document.querySelector("#sheep-food")! as HTMLProgressElement;
+  const waterLevelElem = document.querySelector("#water-level")! as HTMLProgressElement;
 
-  gui.add(
-    {
-      raiseWaterLevel: () => {
-        app.waterLevel++;
-      },
-    },
-    "raiseWaterLevel"
-  );
+  let lastSheepCount: number | null = null;
+  function frame() {
+    app.render();
 
-  app.render();
+    if (app.sheep.length != lastSheepCount) {
+      sheepCountElem.innerHTML = `${app.sheep.length}`;
+      lastSheepCount = app.sheep.length;
+    }
+
+    sheepFoodElem.value = app.sheepStoredFood / 5;
+    waterLevelElem.value = (app.frame % 600) / 600;
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
 };
