@@ -6,14 +6,26 @@ import { TerrainGen, TerrainGeometry } from "./terrain";
 import { makeSheepSprite } from "./sprites";
 import { shuffle } from "./utils";
 
-interface TerrainOptions {
-  seed: string;
-  heightStretch: number;
-  octaves: number;
-  scale: number;
-  lacunarity: number;
-  persistence: number;
-  waterLevel: number;
+function colorMap(height: number, waterDepth: number) {
+  if (waterDepth <= 0) {
+    if (height > 120) {
+      return new THREE.Color(0xcccccc); // white
+    } else if (height > 30) {
+      return new THREE.Color(0x6e5f3f); // brown
+    } else {
+      return new THREE.Color(0x5e9c48); // green
+    }
+  }
+
+  if (waterDepth < 20) {
+    return new THREE.Color(0x475d9e); // light blue
+  } else if (waterDepth < 60) {
+    return new THREE.Color(0x384a80); // lightish blue
+  } else if (waterDepth < 80) {
+    return new THREE.Color(0x273459); // darkish blue
+  } else {
+    return new THREE.Color(0x151c30); // dark blue
+  }
 }
 
 class Sheep {
@@ -38,6 +50,7 @@ class App {
       { light: new THREE.AmbientLight(0xaaccff, 0.35), position: [-200, -100, 200] },
     ],
     meshSize = 1000,
+    seed = "nauthiel",
   } = {}) {
     this.renderer = new THREE.WebGLRenderer({
       alpha: true,
@@ -54,7 +67,19 @@ class App {
     this.scene = new THREE.Scene();
     this.scene.add(this.camera);
 
-    this.terrain = new TerrainGeometry(meshSize, 35);
+    const generator = new TerrainGen(
+      150,
+      (x, y) => {
+        return 0.6 - 2 * Math.sqrt(x ** 2 + y ** 2);
+      },
+      5,
+      3,
+      1.8,
+      0.5,
+      seed
+    );
+    this.terrain = new TerrainGeometry(meshSize, 35, generator);
+    this.terrain.setupVertices(colorMap);
     const terrainMaterial = new THREE.MeshPhongMaterial({
       vertexColors: true,
       flatShading: true,
@@ -89,44 +114,9 @@ class App {
     this.controls.update();
   }
 
-  public updateTerrain(opts: TerrainOptions) {
-    const colorMap = (height: number) => {
-      if (height > opts.waterLevel) {
-        if (height > 120) {
-          return new THREE.Color(0xcccccc); // white
-        } else if (height > 30) {
-          return new THREE.Color(0x6e5f3f); // brown
-        } else {
-          return new THREE.Color(0x5e9c48); // green
-        }
-      }
-
-      let waterDepth = opts.waterLevel - height;
-
-      if (waterDepth < 20) {
-        return new THREE.Color(0x475d9e); // light blue
-      } else if (waterDepth < 60) {
-        return new THREE.Color(0x384a80); // lightish blue
-      } else if (waterDepth < 80) {
-        return new THREE.Color(0x273459); // darkish blue
-      } else {
-        return new THREE.Color(0x151c30); // dark blue
-      }
-    };
-
-    const generator = new TerrainGen(
-      opts.heightStretch,
-      (x, y) => {
-        return 0.6 - 2 * Math.sqrt(x ** 2 + y ** 2);
-      },
-      opts.octaves,
-      opts.scale,
-      opts.lacunarity,
-      opts.persistence,
-      opts.seed
-    );
-
-    this.terrain.setupVertices(generator, colorMap, opts.waterLevel);
+  public updateTerrain(newWaterLevel: number) {
+    // this.terrain.flood(newWaterLevel);
+    this.terrain.setupVertices(colorMap);
   }
 
   public render() {
@@ -216,18 +206,6 @@ const debounce = (fn: (...a: any) => void, time: number) => {
   };
 };
 
-const options: TerrainOptions = {
-  seed: "nauthiel",
-  octaves: 5,
-  scale: 3,
-  lacunarity: 1.8,
-  persistence: 0.5,
-
-  heightStretch: 150,
-
-  waterLevel: -70,
-};
-
 window.onload = () => {
   const app = new App();
   window["app"] = app;
@@ -256,9 +234,12 @@ window.onload = () => {
   document.querySelector("main").addEventListener("click", onClick);
 
   const gui: any = new dat.GUI();
+  const options = {
+    waterLevel: -70,
+  };
 
   const generate = () => {
-    app.updateTerrain(options);
+    app.updateTerrain(options.waterLevel);
   };
 
   // simple filter to only react when the value actually changes, instead of on all focus lost events
@@ -274,23 +255,18 @@ window.onload = () => {
     );
   };
 
-  onActualChange(gui.add(options, "seed").listen(), generate);
-  gui.add(
-    {
-      randomSeed: () => {
-        options.seed = Math.random().toString(36).substring(2);
-        generate();
-      },
-    },
-    "randomSeed"
-  );
+  // onActualChange(gui.add(options, "seed").listen(), generate);
+  // gui.add(
+  //   {
+  //     randomSeed: () => {
+  //       options.seed = Math.random().toString(36).substring(2);
+  //       generate();
+  //     },
+  //   },
+  //   "randomSeed"
+  // );
 
-  onActualChange(gui.add(options, "octaves", 1, 50).step(1), generate);
-  onActualChange(gui.add(options, "scale", 0.01, 25), generate);
-  onActualChange(gui.add(options, "lacunarity", 0.01, 10), generate);
-  onActualChange(gui.add(options, "persistence", 0.01, 1), generate);
-  onActualChange(gui.add(options, "heightStretch", 1, 200), generate);
-  onActualChange(gui.add(options, "waterLevel", -150, 150).step(1), generate);
+  onActualChange(gui.add(options, "waterLevel", -150, 150), generate);
   gui.add(
     {
       raiseWaterLevel: () => {
