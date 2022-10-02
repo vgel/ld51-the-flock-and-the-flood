@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 import { TerrainGen, TerrainGeometry } from "./terrain";
-import { makeSheepSprite } from "./sprites";
+import { makeFlagSprite, makeSheepSprite } from "./sprites";
 import { assert, shuffle } from "./utils";
 import { Rain } from "./rain";
 
@@ -89,8 +89,10 @@ class App {
   public faceSheepSlotFree: Record<number, [boolean, boolean, boolean]> = {};
   public flockingPoint: number | null = null;
   public waterLevel: number;
+  public waterCounter = 0;
   public frame = 0;
   public sheepStoredFood = 0;
+  public flagSprite: THREE.Sprite;
 
   constructor({
     backgroundColor = 0x4f4f4f,
@@ -160,6 +162,9 @@ class App {
       })
     );
     this.terrainMesh.add(this.oceanPlane);
+
+    this.flagSprite = makeFlagSprite();
+    this.terrainMesh.add(this.flagSprite);
 
     const meshCenter = this.terrainMesh.position.clone().add(new THREE.Vector3(meshSize / 2, 0, -meshSize / 2));
     this.controls.target.copy(meshCenter);
@@ -251,15 +256,12 @@ class App {
     this.faceSheepSlotFree[faceIndex][slot] = false;
 
     const vertex = faceIndex * 3 + slot;
-    const wander = 1; //Math.random() + 1;
+    const wander = Math.random() + 1;
     const tx = (tPos.getX(vertex) + faceCenterX * wander) / (1 + wander);
     const ty = (tPos.getY(vertex) + faceCenterY * wander) / (1 + wander);
     const tz = (tPos.getZ(vertex) + faceCenterZ * wander) / (1 + wander);
 
     sheep.startMovement(faceIndex, slot, new THREE.Vector3(tx, ty, tz + 7));
-
-    // sheep.sprite.position.set(tx, ty, tz + 7);
-    // sheep.faceIndex = faceIndex;
   }
 
   trySpawnSheep(): boolean {
@@ -347,10 +349,6 @@ class App {
       }
     }
 
-    if (this.frame % 600 == 0) {
-      this.waterLevel += 5;
-    }
-
     this.terrain.setupVertices();
   }
 
@@ -367,6 +365,15 @@ class App {
 
     this.sheep = this.sheep.filter((sheep) => !sheep.isDead);
 
+    if (this.flockingPoint !== null) {
+      // player placed sheep
+      if (this.waterCounter == 600) {
+        this.waterLevel += 5;
+        this.waterCounter = 0;
+      } else {
+        this.waterCounter++;
+      }
+    }
     if (this.frame % 4 == 0) {
       this.slowTick();
     }
@@ -412,6 +419,9 @@ class App {
     } else {
       this.flockingPoint = faceIndex;
     }
+    
+    const { x, y, z } = this.terrain.xyzFaceCenter(this.flockingPoint);
+    this.flagSprite.position.set(x, y, z + 10);
   }
 
   public raycastHover(intersection: THREE.Intersection<THREE.Object3D>) {
@@ -420,6 +430,10 @@ class App {
       return;
     }
     this.terrain.setHighlightedFace(faceIndex);
+    if (this.flockingPoint == null) {
+      const { x, y, z } = this.terrain.xyzFaceCenter(faceIndex);
+      this.flagSprite.position.set(x, y, z + 10);
+    }
   }
 }
 
@@ -439,12 +453,13 @@ window.onload = () => {
 
     caster.setFromCamera(mouse, app.camera);
 
-    const intersects = caster.intersectObjects([app.terrainMesh]);
+    const intersects = caster.intersectObject(app.terrainMesh);
 
     if (intersects.length > 0) {
       for (let m of intersects) {
         if (m.object === app.terrainMesh) {
           app.raycast(m);
+          break;
         }
       }
     }
@@ -456,12 +471,13 @@ window.onload = () => {
 
     caster.setFromCamera(mouse, app.camera);
 
-    const intersects = caster.intersectObjects([app.terrainMesh]);
+    const intersects = caster.intersectObject(app.terrainMesh);
 
     if (intersects.length > 0) {
       for (let m of intersects) {
         if (m.object === app.terrainMesh) {
           app.raycastHover(m);
+          break;
         }
       }
     }
@@ -485,7 +501,7 @@ window.onload = () => {
     }
 
     sheepFoodElem.value = app.sheepStoredFood / 5;
-    waterLevelElem.value = (app.frame % 600) / 600;
+    waterLevelElem.value = app.waterCounter / 600;
 
     requestAnimationFrame(frame);
   }

@@ -15,10 +15,16 @@ function spriteTexture(index: number): THREE.Texture {
 
 const sheepTexture = spriteTexture(0);
 const sheepMaterial = new THREE.SpriteMaterial({ map: sheepTexture });
-const monolithTexture = spriteTexture(1);
-
 export function makeSheepSprite(): THREE.Sprite {
   const sprite = new THREE.Sprite(sheepMaterial);
   sprite.scale.set(15, 15, 15);
+  return sprite;
+}
+
+const flagTexture = spriteTexture(2);
+const flagMaterial = new THREE.SpriteMaterial({ map: flagTexture });
+export function makeFlagSprite(): THREE.Sprite {
+  const sprite = new THREE.Sprite(flagMaterial);
+  sprite.scale.set(30, 30, 30);
   return sprite;
 }

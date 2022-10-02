@@ -212,6 +212,16 @@ export class TerrainGeometry extends THREE.BufferGeometry {
     };
   }
 
+  public xyzFaceCenter(faceIndex: number): { x: number, y: number, z: number } {
+    const { x, y } = this.xyFaceCenter(faceIndex);
+    let z = 0;
+    for (let v of this.faceToVertices[faceIndex]) {
+      z += this.heightmap[v];
+    }
+    z /= 3;
+    return { x, y, z };
+  }
+
   public flood(edgeWaterLevel: number): boolean {
     this.scratchVertexWaterDepth.set(this.vertexWaterDepth);
 
