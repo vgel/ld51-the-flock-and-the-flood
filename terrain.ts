@@ -53,8 +53,8 @@ export class TerrainGeometry extends THREE.BufferGeometry {
   public readonly colors: THREE.BufferAttribute;
   public readonly heightmap: Float32Array;
 
-  public vertexToFaces: Record<number, number[]> = {};
-  public faceToVertices: Record<number, number[]> = {};
+  public vertexToFaces: Record<number, number[]>;
+  public faceToVertices: Record<number, number[]>;
 
   public vertexWaterDepth: Float32Array;
   scratchVertexWaterDepth: Float32Array;
@@ -90,6 +90,37 @@ export class TerrainGeometry extends THREE.BufferGeometry {
     this.vertexWaterDepth.fill(0);
     this.scratchVertexWaterDepth = new Float32Array(this.vertexWaterDepth.length);
     this.scratchVertexWaterDepth.fill(0);
+
+    this.faceToVertices = {};
+    this.vertexToFaces = {};
+
+    const initFace = (faceIdx: number, a: number, b: number, c: number) => {
+      this.faceToVertices[faceIdx] = [a, b, c];
+      this.vertexToFaces[a] ??= [];
+      this.vertexToFaces[a].push(faceIdx);
+      this.vertexToFaces[b] ??= [];
+      this.vertexToFaces[b].push(faceIdx);
+      this.vertexToFaces[c] ??= [];
+      this.vertexToFaces[c].push(faceIdx);
+    };
+
+    const r = this.resolution;
+    for (let n = 0; n < this.numUniqueVertices(); n++) {
+      const row = Math.floor(n / (r + 1));
+      const col = n % (r + 1);
+
+      if (row !== r && col !== r) {
+        const rowIsEven = row % 2 === 0;
+        if (!rowIsEven) {
+          initFace(n * 2 + 0, n, n + 1, n + r + 1);
+          initFace(n * 2 + 1, n + 1, n + r + 2, n + r + 1);
+        } else {
+          initFace(n * 2 + 0, n, n + r + 2, n + r + 1);
+          initFace(n * 2 + 1, n, n + 1, n + r + 2);
+        }
+      }
+    }
+
   }
 
   // n quads per row,, n rows
@@ -251,16 +282,6 @@ export class TerrainGeometry extends THREE.BufferGeometry {
     b: number,
     c: number
   ) {
-    // set positions / adjacency
-    // TODO: kinda wasteful to set this each time it's modified instead of checking if dirty
-    this.faceToVertices[faceIdx] = [a, b, c];
-    this.vertexToFaces[a] ??= [];
-    this.vertexToFaces[a].push(faceIdx);
-    this.vertexToFaces[b] ??= [];
-    this.vertexToFaces[b].push(faceIdx);
-    this.vertexToFaces[c] ??= [];
-    this.vertexToFaces[c].push(faceIdx);
-
     this.setFaceColor(this.getFaceColor(faceIdx), faceIdx);
 
     const pA = this.xyzAtPointIndex(a);
@@ -274,9 +295,6 @@ export class TerrainGeometry extends THREE.BufferGeometry {
 
   public setupVertices() {
     const r = this.resolution;
-
-    this.faceToVertices = {};
-    this.vertexToFaces = {};
 
     for (let n = 0; n < this.numUniqueVertices(); n++) {
       const row = Math.floor(n / (r + 1));
@@ -292,10 +310,9 @@ export class TerrainGeometry extends THREE.BufferGeometry {
           this.setFace(n * 2 + 1, n, n + 1, n + r + 2);
         }
       }
-
-      (this.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     }
 
+    (this.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     this.computeBoundingSphere();
     this.computeVertexNormals();
   }
