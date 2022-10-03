@@ -98,8 +98,10 @@ class App {
   public readonly monolith2Sprite: THREE.Object3D;
   public readonly monolithPillarSprites: THREE.Object3D[];
 
-  public readonly sheepBaaSound = new SoundEffect("sheepBaa", 60, 60);
-  public readonly sheepEatSound = new SoundEffect("sheepEat", 60, 60);
+  public readonly sheepBaaSound = new SoundEffect("sheepBaa", 60, 20);
+  // public readonly sheepEatSound = new SoundEffect("sheepEat", 60, 60);
+  public readonly bellSound = new SoundEffect("bell", 30, 0);
+  public readonly wavesSound = new SoundEffect("waves", 60, 0);
 
   public inDemoMode: boolean;
   public sheep: Sheep[] = [];
@@ -110,6 +112,7 @@ class App {
   public frame = 0;
   public sheepStoredFood = 0;
   public templeLevel = 1;
+  public maxSheep = 0;
 
   constructor(
     renderer: THREE.WebGLRenderer,
@@ -419,7 +422,8 @@ class App {
         this.sheepBaaSound.play();
       }
     }
-
+  
+    const oldTempleLevel = this.templeLevel;
     if (this.templeLevel == 1 && this.sheep.length >= 30) {
       this.templeLevel = 2;
       this.monolith1Sprite.removeFromParent();
@@ -444,6 +448,10 @@ class App {
       this.terrainMesh.add(this.monolithPillarSprites[5]);
     }
 
+    if (this.templeLevel > oldTempleLevel) {
+      this.bellSound.play();
+    }
+
     if (this.flockingPoint != null && this.terrain.faceVerticesAllWater(this.flockingPoint)) {
       this.flagSprite.position.set(10000, 10000, 10000);
     }
@@ -453,7 +461,9 @@ class App {
 
   public tick() {
     this.sheepBaaSound.update();
-    this.sheepEatSound.update();
+    // this.sheepEatSound.update();
+    this.bellSound.update();
+    this.wavesSound.update();
 
     for (let sheep of this.sheep) {
       if (this.terrain.faceVerticesAllWater(sheep.faceIndex)) {
@@ -480,6 +490,9 @@ class App {
         } else {
           this.waterLevel += 45;
         }
+        if (this.waterLevel < highestWaterLevel) {
+          this.wavesSound.play();
+        }
         this.waterLevel = Math.min(highestWaterLevel, this.waterLevel);
         this.waterCounter = 0;
       } else {
@@ -489,6 +502,8 @@ class App {
     if (this.frame % 4 == 0) {
       this.slowTick();
     }
+
+    this.maxSheep = Math.max(this.maxSheep, this.sheep.length);
   }
 
   public raycast(intersection: THREE.Intersection<THREE.Object3D>) {
@@ -590,6 +605,7 @@ window.onload = () => {
 
   const endgameMenu = document.querySelector("#endgame-menu")!;
   const endgameQuitButton = document.querySelector("#endgame-quit")! as HTMLButtonElement;
+  const scoreElem = document.querySelector("#score")! as HTMLParagraphElement;
 
   /////////////////////////
 
@@ -742,6 +758,10 @@ window.onload = () => {
 
         if (lastSheepCount !== null && lastSheepCount > 0 && app.sheep.length === 0) {
           setTimeout(() => {
+            scoreElem.innerText = `
+              Your flock grew to ${app.maxSheep} sheep
+              and built ${app.templeLevel} out of 8 pieces of the temple.
+            `.trim();
             endgameMenu.removeAttribute("hidden");
           }, 5000);
         }

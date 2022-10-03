@@ -1,18 +1,19 @@
 import { Howl } from "howler";
 import { weightedChoose } from "./utils";
 
-export type SoundId = "sheepBaa" | "sheepEat";
+export type SoundId = "sheepBaa" | "bell" | "waves";
 
 interface WeightedSound {
   sound: Howl;
   weight: number;
 }
 
-function makeSound(sources: Array<{ path: string; weight: number }>): WeightedSound[] {
+function makeSound(sources: Array<{ path: string; weight: number, volume: number }>): WeightedSound[] {
   return sources.map((src) => ({
     sound: new Howl({
       src: [src.path],
       preload: true,
+      volume: src.volume,
     }),
     weight: src.weight,
   }));
@@ -20,11 +21,13 @@ function makeSound(sources: Array<{ path: string; weight: number }>): WeightedSo
 
 const SOUNDS: Record<SoundId, WeightedSound[]> = {
   sheepBaa: makeSound([
-    { path: "SheepLow.mp3", weight: 1 },
-    { path: "SheepMid.mp3", weight: 1 },
-    { path: "SheepHigh.mp3", weight: 1 },
+    { path: "SheepLow.mp3", weight: 1, volume: 1 },
+    { path: "SheepMid.mp3", weight: 1, volume: 1 },
+    { path: "SheepHigh.mp3", weight: 1, volume: 1 },
   ]),
-  sheepEat: makeSound([{ path: "GrassEating.mp3", weight: 1 }]),
+  // sheepEat: makeSound([{ path: "GrassEating.mp3", weight: 1 }]),
+  bell: makeSound([{ path: "bell.mp3", weight: 1, volume: 2 }]),
+  waves: makeSound([{ path: "waves.mp3", weight: 1, volume: 0.1 }]),
 };
 
 export function playSound(sound: SoundId) {
@@ -50,6 +53,7 @@ export class SoundEffect {
 
   public play(): boolean {
     if (!this.canPlay()) {
+      console.log("didn't play", this.soundId, "too soon: ", this.cooldownTimer);
       return false;
     }
     this.cooldownTimer = this.baseCooldownTime + Math.random() * this.randomExtraCooldownTime;
@@ -71,7 +75,7 @@ function makeBgTrack(path: string, initialVolume: number): Howl {
 }
 
 const tracks = {
-  rain: makeBgTrack("rain.mp3", 0.04),
+  rain: makeBgTrack("rain.mp3", 0.1),
   music: makeBgTrack("music.mp3", 0.2),
 };
 (window as any).tracks = tracks;
