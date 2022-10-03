@@ -1,6 +1,9 @@
 <head>
-  <title>The Waters</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Flock and The Flood</title>
   <style>
+    *[hidden] { display: none !important; }
     body, html { padding: 0; margin: 0; }
     main { width: 100vw; height: 100vh; }
 
@@ -13,6 +16,7 @@
       gap: 8px;
       color: white;
       font-family: system-ui;
+      z-index: 5;
     }
 
     #ui > div {
@@ -43,12 +47,88 @@
 
     progress#sheep-food { accent-color: #3c622d; }
     progress#water-level { accent-color: #273459 }
+
+    .menu-outer {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      display: flex;
+      place-content: center;
+      z-index: 10;
+    }
+
+    .menu-inner {
+      width: 800px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-top: 16px;
+      gap: 16px;
+      align-self: center;
+    }
+    
+    #menu > .menu-inner {
+      align-self: stretch;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    #endgame-menu > .menu-inner {
+      align-self: stretch;
+    }
+
+    .hero-img {
+      display: block;
+      image-rendering: pixelated;
+      width: 100%;
+    }
+
+    .menu-controls {
+      justify-self: center;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+
+    .seed-controls {
+      display: flex;
+      flex-direction: row;
+      align-items: stretch;
+      gap: 8px;
+    }
+
+    .seed-controls > button {
+      width: 100%;
+    }
+
+    button {
+      border-radius: 0;
+      border: 2px solid #384742;
+      font-size: 150%;
+      cursor: pointer;
+      background-color: rgba(101, 130, 121, 0.8);
+    }
+
+    .instructions {
+      padding: 4px;
+      font-size: 120%;
+      border: 2px solid #384742;
+      background-color: rgba(101, 130, 121, 0.8);
+      /* background-color: #384742; */
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .instructions > p {
+      margin: 0;
+    }
   </style>
   <script src="./bundle.js"></script>
 </head>
 
 <main>
-  <section id="ui">
+  <section id="ui" hidden>
     <div>
       <span class="icon sheep-icon"></span>
       <progress id="sheep-food" value="0"></progress>
@@ -57,6 +137,42 @@
     <div>
       <span class="icon water-icon"></span>
       <progress id="water-level" value="0"></progress>
+    </div>
+  </section>
+  <section id="menu" class="menu-outer">
+    <div class="menu-inner">
+      <img src="title.png" alt="The Flock and The Flood" class="hero-img">
+      <div class="menu-controls">
+        <button id="play-button">Play</button>
+        <div class="seed-controls">
+          <input type="text" id="seed">
+          <button id="play-seeded-button">Play Seeded</button>
+        </div>
+        <div class="instructions">
+          <p>Click to place or move your sheep, click and drag to move the camera, scroll to zoom.</p>
+          <p>The flood rises every 10 seconds. Don't let your sheep drown!</p>
+          <p>Sheep eat grass, darker grass is better. When the grass bar fills, a new sheep is born.</p>
+          <p>The temple on the peak grows with your flock.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section id="esc-menu" class="menu-outer" hidden>
+    <div class="menu-inner">
+      <button id="resume">Resume</button>
+      <button id="mute">Mute Sound</button>
+      <button id="quit">Quit to Menu</button>
+      <div class="instructions">
+        <p>Click to place or move your sheep, click and drag to move the camera, scroll to zoom.</p>
+        <p>The flood rises every 10 seconds. Don't let your sheep drown!</p>
+        <p>Sheep eat grass, darker grass is better. When the grass bar fills, a new sheep is born.</p>
+        <p>The temple on the peak grows with your flock.</p>
+      </div>
+    </div>
+  </section>
+  <section id="endgame-menu" class="menu-outer" hidden>
+    <div class="menu-inner">
+      <button id="endgame-quit">End Game</button>
     </div>
   </section>
 </main>

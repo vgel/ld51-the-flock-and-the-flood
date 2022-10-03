@@ -62,36 +62,28 @@ export class SoundEffect {
   }
 }
 
-// function makeBgTrack(path: string, initialVolume: number): Howl {
-//   return new Howl({
-//     src: [path],
-//     volume: initialVolume,
-//     loop: true,
-//   });
-// }
+function makeBgTrack(path: string, initialVolume: number): Howl {
+  return new Howl({
+    src: [path],
+    volume: initialVolume,
+    loop: true,
+  });
+}
 
-// const CHANT_BASE_VOLUME = 0.15;
-// // start volume at 0.01 so we ramp up (0 causes it to never play for some reason)
-// const CHANT = makeBgTrack("sounds/chant.mp3", 0.01);
-// const WIND_BASE_VOUME = 0.15;
-// const WIND = makeBgTrack("sounds/wind.mp3", 0.01);
-// const RAIN_BASE_VOLUME = 0.15;
-// const RAIN = makeBgTrack("sounds/rain.mp3", 0.01);
+const tracks = {
+  rain: makeBgTrack("rain.mp3", 0.03),
+  music: makeBgTrack("music.mp3", 0.2),
+};
+(window as any).tracks = tracks;
 
-// export function startBgMusic() {
-//   CHANT.play();
-//   WIND.play();
-//   RAIN.play();
-// }
+export function startBgTracks() {
+  Object.values(tracks).forEach(track => {
+    if (!track.playing()) {
+      track.play();
+    }
+});
+}
 
-// export function setBgBalance(chant: number, wind: number, rain: number) {
-//   CHANT.fade(CHANT.volume(), CHANT_BASE_VOLUME * chant, 3000);
-//   WIND.fade(WIND.volume(), WIND_BASE_VOUME * wind, 3000);
-//   RAIN.fade(RAIN.volume(), RAIN_BASE_VOLUME * rain, 3000);
-// }
-
-// export function setBgMuted(muted: boolean) {
-//   CHANT.mute(muted);
-//   WIND.mute(muted);
-//   RAIN.mute(muted);
-// }
+export function stopBgTracks() {
+  Object.values(tracks).forEach(track => track.stop());
+}

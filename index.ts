@@ -11,20 +11,20 @@ import {
 } from "./sprites";
 import { assert, shuffle } from "./utils";
 import { Rain } from "./rain";
-import { SoundEffect } from "./sounds";
+import { setSoundMuted, SoundEffect, startBgTracks, stopBgTracks } from "./sounds";
 
 function colorMap(height: number, grassAmount: number, waterDepth: number) {
   if (waterDepth <= 0) {
     if (height > 120) {
       return new THREE.Color(0xcccccc); // white
     } else if (height > 30) {
-      return new THREE.Color(0x6e5f3f); // brown
+      return new THREE.Color(0x67593B); // brown
     } else if (grassAmount <= 0.05) {
-      return new THREE.Color(0xc1cc8f); // sage / yellow
+      return new THREE.Color(0xA6BE80); // sage / yellow
     } else if (grassAmount < 0.5) {
-      return new THREE.Color(0x5e9c48); // green
+      return new THREE.Color(0x549150); // green
     } else {
-      return new THREE.Color(0x3c622d);
+      return new THREE.Color(0x345A31);
     }
   }
 
@@ -101,6 +101,7 @@ class App {
   public readonly sheepBaaSound = new SoundEffect("sheepBaa", 60, 60);
   public readonly sheepEatSound = new SoundEffect("sheepEat", 60, 60);
 
+  public inDemoMode: boolean;
   public sheep: Sheep[] = [];
   public faceSheepSlotFree: Record<number, [boolean, boolean, boolean]> = {};
   public flockingPoint: number | null = null;
@@ -110,27 +111,28 @@ class App {
   public sheepStoredFood = 0;
   public templeLevel = 1;
 
-  constructor({
-    backgroundColor = 0x4f4f4f,
-    camera: { fov = 70, nearPlane = 0.01, farPlane = 1e5, position: cameraPosition = [450, 650, 250] } = {},
-    lights = [
-      { light: new THREE.HemisphereLight(0x000000, 0xffffff, 0.95), position: [0, -50, -100] },
-      { light: new THREE.AmbientLight(0xaaccff, 0.35), position: [-200, -100, 200] },
-    ],
-    meshSize = 1000,
-    seed = "nauthiel",
-    initialWaterLevel = -70,
-  } = {}) {
+  constructor(
+    renderer: THREE.WebGLRenderer,
+    {
+      isDemo = false,
+      backgroundColor = 0x4f4f4f,
+      camera: { fov = 70, nearPlane = 0.01, farPlane = 1e5, position: cameraPosition = [450, 650, 250] } = {},
+      lights = [
+        { light: new THREE.HemisphereLight(0x000000, 0xffffff, 0.95), position: [0, -50, -100] },
+        { light: new THREE.AmbientLight(0xaaccff, 0.35), position: [-200, -100, 200] },
+      ],
+      meshSize = 1000,
+      seed = "nauthiel",
+      initialWaterLevel = -70,
+    } = {}
+  ) {
+    this.renderer = renderer;
+    this.renderer.setClearColor(backgroundColor, 1);
+
+    this.inDemoMode = isDemo;
+
     this.waterLevel = initialWaterLevel;
     this.meshSize = meshSize;
-
-    this.renderer = new THREE.WebGLRenderer({
-      alpha: true,
-      antialias: true,
-    });
-    this.renderer.setPixelRatio(window.devicePixelRatio);
-    this.renderer.setClearColor(backgroundColor, 1);
-    document.querySelector("main")!.appendChild(this.renderer.domElement);
 
     this.camera = new THREE.PerspectiveCamera(fov, 0, nearPlane, farPlane); // aspect = 0 for now
     this.camera.position.fromArray(cameraPosition);
@@ -214,6 +216,11 @@ class App {
 
     window.onresize = () => this.setSize();
     this.setSize();
+
+    for (let i = 0; i < 10; i++) {
+      this.terrain.flood(this.waterLevel);
+    }
+    this.terrain.setupVertices();
   }
 
   public setSize() {
@@ -225,16 +232,35 @@ class App {
     this.controls.update();
   }
 
-  public render() {
+  public render(paused: boolean) {
     // it doesn't move equal with the water level, but it only looks a little wonky
     this.oceanPlane.position.set(0, 0, this.waterLevel - 30);
+
+    this.rain.tick();
+
+    if (this.inDemoMode) {
+      this.flagSprite.visible = false;
+      this.controls.enabled = false;
+      this.controls.autoRotate = true;
+      this.controls.autoRotateSpeed = 2;
+      this.controls.minPolarAngle = Math.PI / 3;
+      this.controls.maxDistance = this.meshSize * 0.8;
+    } else {
+      this.flagSprite.visible = true;
+      this.controls.enabled = true;
+      this.controls.autoRotate = false;
+      this.controls.minPolarAngle = 0;
+      this.controls.maxDistance = this.meshSize * 2;
+    }
 
     this.controls.target.copy(this.terrainMesh.position);
     this.controls.target.x += this.meshSize / 2;
     this.controls.target.y += Math.max(0, this.waterLevel);
     this.controls.target.z += -this.meshSize / 2;
 
-    this.tick();
+    if (!paused) {
+      this.tick();
+    }
     this.renderer.render(this.scene, this.camera);
     this.controls.update();
     this.frame++;
@@ -417,7 +443,7 @@ class App {
       this.templeLevel = 8;
       this.terrainMesh.add(this.monolithPillarSprites[5]);
     }
-  
+
     if (this.flockingPoint != null && this.terrain.faceVerticesAllWater(this.flockingPoint)) {
       this.flagSprite.position.set(10000, 10000, 10000);
     }
@@ -426,7 +452,6 @@ class App {
   }
 
   public tick() {
-    this.rain.tick();
     this.sheepBaaSound.update();
     this.sheepEatSound.update();
 
@@ -450,10 +475,10 @@ class App {
           this.waterLevel += 5;
         } else if (this.waterLevel < 40) {
           this.waterLevel += 10;
-        } else if (this.waterLevel < 90) {
+        } else if (this.waterLevel < 80) {
           this.waterLevel += 20;
         } else {
-          this.waterLevel += 35;
+          this.waterLevel += 45;
         }
         this.waterLevel = Math.min(highestWaterLevel, this.waterLevel);
         this.waterCounter = 0;
@@ -467,6 +492,10 @@ class App {
   }
 
   public raycast(intersection: THREE.Intersection<THREE.Object3D>) {
+    if (this.inDemoMode) {
+      return;
+    }
+
     let { faceIndex } = intersection;
     if (faceIndex == null) {
       return;
@@ -512,6 +541,10 @@ class App {
   }
 
   public raycastHover(intersection: THREE.Intersection<THREE.Object3D>) {
+    if (this.inDemoMode) {
+      return;
+    }
+
     let { faceIndex } = intersection;
     if (faceIndex == null) {
       return;
@@ -525,13 +558,57 @@ class App {
 }
 
 window.onload = () => {
-  const app = new App();
-  (window as any)["app"] = app;
   const main = document.querySelector("main");
   assert(main !== null, "missing main element!");
 
+  const renderer = new THREE.WebGLRenderer({
+    alpha: true,
+    antialias: true,
+  });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  main.appendChild(renderer.domElement);
+
+  let app = new App(renderer, { isDemo: true });
+
   const caster = new THREE.Raycaster();
+
+  const ui = document.querySelector("#ui")!;
+  const sheepCountElem = document.querySelector("#sheep-count")! as HTMLSpanElement;
+  const sheepFoodElem = document.querySelector("#sheep-food")! as HTMLProgressElement;
+  const waterLevelElem = document.querySelector("#water-level")! as HTMLProgressElement;
+
+  const menu = document.querySelector("#menu")!;
+  const playButton = document.querySelector("#play-button")! as HTMLButtonElement;
+  const playSeededButton = document.querySelector("#play-seeded-button")! as HTMLButtonElement;
+  const seedInput = document.querySelector("#seed")! as HTMLInputElement;
+  seedInput.value = Math.random().toString(36).substring(2);
+
+  const escMenu = document.querySelector("#esc-menu")!;
+  const resumeButton = document.querySelector("#resume")! as HTMLButtonElement;
+  const muteButton = document.querySelector("#mute")! as HTMLButtonElement;
+  const quitButton = document.querySelector("#quit")! as HTMLButtonElement;
+
+  const endgameMenu = document.querySelector("#endgame-menu")!;
+  const endgameQuitButton = document.querySelector("#endgame-quit")! as HTMLButtonElement;
+
+  /////////////////////////
+
+  let state: "menu" | "pause" | "playing" = "menu";
+  let soundMuted = false;
+
+  function updateMuteButtonText() {
+    if (soundMuted) {
+      muteButton.innerText = "Unmute sound";
+    } else {
+      muteButton.innerText = "Mute sound";
+    }
+  }
+
   function onClick(event: MouseEvent) {
+    if (app.inDemoMode || state !== "playing") {
+      return;
+    }
+
     event.preventDefault();
 
     const mouse = new THREE.Vector2();
@@ -552,6 +629,10 @@ window.onload = () => {
     }
   }
   function onMove(event: MouseEvent) {
+    if (app.inDemoMode || state !== "playing") {
+      return;
+    }
+
     const mouse = new THREE.Vector2();
     mouse.x = (event.clientX / app.renderer.domElement.offsetWidth) * 2 - 1;
     mouse.y = -(event.clientY / app.renderer.domElement.offsetHeight) * 2 + 1;
@@ -572,19 +653,99 @@ window.onload = () => {
   main.addEventListener("mousedown", onClick);
   main.addEventListener("mousemove", onMove);
 
-  // seed = Math.random().toString(36).substring(2);
+  function enterMenu() {
+    if (state == "menu") {
+      return;
+    }
+    state = "menu";
 
-  const sheepCountElem = document.querySelector("#sheep-count")! as HTMLSpanElement;
-  const sheepFoodElem = document.querySelector("#sheep-food")! as HTMLProgressElement;
-  const waterLevelElem = document.querySelector("#water-level")! as HTMLProgressElement;
+    menu.removeAttribute("hidden");
+    escMenu.setAttribute("hidden", "true");
+    ui.setAttribute("hidden", "true");
+    endgameMenu.setAttribute("hidden", "true");
+    app = new App(renderer, { isDemo: true });
+    stopBgTracks();
+  }
+
+  function enterPauseMenu() {
+    if (state == "menu" || state == "pause") {
+      return;
+    }
+    state = "pause";
+
+    menu.setAttribute("hidden", "true");
+    escMenu.removeAttribute("hidden");
+    updateMuteButtonText();
+  }
+
+  function enterPlaying(seed?: string) {
+    if (state == "playing") {
+      return;
+    }
+    if (state == "menu") {
+      const options = seed != null ? { seed } : {};
+      app = new App(renderer, { isDemo: false, ...options });
+    }
+    state = "playing";
+
+    menu.setAttribute("hidden", "true");
+    escMenu.setAttribute("hidden", "true");
+    ui.removeAttribute("hidden");
+
+    if (!soundMuted) {
+      startBgTracks();
+    }
+  }
+
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key == "Esc" || event.key == "Escape") {
+        if (state == "pause") {
+          enterPlaying();
+        } else if (state == "playing") {
+          enterPauseMenu();
+        }
+      }
+    },
+    true
+  );
+
+  playButton.addEventListener("click", () => enterPlaying());
+  playSeededButton.addEventListener("click", () => enterPlaying(seedInput.value));
+  resumeButton.addEventListener("click", () => enterPlaying());
+  muteButton.addEventListener("click", () => {
+    soundMuted = !soundMuted;
+    setSoundMuted(soundMuted);
+    updateMuteButtonText();
+    if (!soundMuted) {
+      startBgTracks();
+    } else {
+      stopBgTracks();
+    }
+  });
+  quitButton.addEventListener("click", () => enterMenu());
+  endgameQuitButton.addEventListener("click", () => enterMenu());
+
+  enterMenu();
 
   let lastSheepCount: number | null = null;
   function frame() {
-    app.render();
+    (window as any)["app"] = app;
+    app.render(state !== "playing");
 
-    if (app.sheep.length != lastSheepCount) {
-      sheepCountElem.innerHTML = `${app.sheep.length}`;
-      lastSheepCount = app.sheep.length;
+    if (state == "playing") {
+      if (app.sheep.length != lastSheepCount) {
+        sheepCountElem.innerHTML = `${app.sheep.length}`;
+
+        if (lastSheepCount !== null && lastSheepCount > 0 && app.sheep.length === 0) {
+          setTimeout(() => {
+            endgameMenu.removeAttribute("hidden");
+          }, 5000);
+        }
+
+        lastSheepCount = app.sheep.length;        
+      }
     }
 
     sheepFoodElem.value = app.sheepStoredFood / 5;
@@ -592,5 +753,6 @@ window.onload = () => {
 
     requestAnimationFrame(frame);
   }
+
   requestAnimationFrame(frame);
 };
