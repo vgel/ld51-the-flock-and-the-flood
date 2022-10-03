@@ -77,13 +77,13 @@ const tracks = {
 (window as any).tracks = tracks;
 
 export function startBgTracks() {
-  Object.values(tracks).forEach(track => {
+  Object.values(tracks).forEach((track) => {
     if (!track.playing()) {
       track.play();
     }
-});
+  });
 }
 
 export function stopBgTracks() {
-  Object.values(tracks).forEach(track => track.stop());
+  Object.values(tracks).forEach((track) => track.stop());
 }

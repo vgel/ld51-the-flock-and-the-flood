@@ -18,13 +18,13 @@ function colorMap(height: number, grassAmount: number, waterDepth: number) {
     if (height > 120) {
       return new THREE.Color(0xcccccc); // white
     } else if (height > 30) {
-      return new THREE.Color(0x67593B); // brown
+      return new THREE.Color(0x67593b); // brown
     } else if (grassAmount <= 0.05) {
-      return new THREE.Color(0xA6BE80); // sage / yellow
+      return new THREE.Color(0xa6be80); // sage / yellow
     } else if (grassAmount < 0.5) {
       return new THREE.Color(0x549150); // green
     } else {
-      return new THREE.Color(0x345A31);
+      return new THREE.Color(0x345a31);
     }
   }
 
@@ -744,7 +744,7 @@ window.onload = () => {
           }, 5000);
         }
 
-        lastSheepCount = app.sheep.length;        
+        lastSheepCount = app.sheep.length;
       }
     }
 

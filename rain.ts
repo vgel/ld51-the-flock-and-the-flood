@@ -25,7 +25,7 @@ export class Rain {
         i,
         Math.random() * spread - spread / 2,
         Math.random() * spread - spread / 2,
-        Math.random() * spread * 2 - spread / 2,
+        Math.random() * spread * 2 - spread / 2
       );
     }
 

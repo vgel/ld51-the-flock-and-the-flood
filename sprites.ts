@@ -57,7 +57,6 @@ function monolithObjectHelper(material: THREE.Material, width: number, height: n
     mesh2.rotateZ(Math.PI / 2);
   }
 
-
   const object = new THREE.Object3D();
   object.add(mesh1, mesh2);
   object.rotateX(Math.PI / 2);

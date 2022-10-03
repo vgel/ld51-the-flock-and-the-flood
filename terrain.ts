@@ -42,7 +42,7 @@ export class TerrainGen {
     // Z offset to avoid correlation with terrain
     const raw = (this.noise(x * 5, y * 5, 1000) + 1) / 2;
 
-    const distFromCenter = Math.sqrt(x**2 + y**2);
+    const distFromCenter = Math.sqrt(x ** 2 + y ** 2);
 
     const f = Math.max(0, Math.min(1, raw * 1.5 * distFromCenter + 0.1));
     return f > 0.5 ? f + 2 : f;
@@ -239,7 +239,7 @@ export class TerrainGeometry extends THREE.BufferGeometry {
     };
   }
 
-  public xyzFaceCenter(faceIndex: number): { x: number, y: number, z: number } {
+  public xyzFaceCenter(faceIndex: number): { x: number; y: number; z: number } {
     const { x, y } = this.xyFaceCenter(faceIndex);
     let z = 0;
     for (let v of this.faceToVertices[faceIndex]) {
