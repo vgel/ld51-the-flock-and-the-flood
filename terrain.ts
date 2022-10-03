@@ -63,6 +63,7 @@ export class TerrainGeometry extends THREE.BufferGeometry {
   public readonly colors: THREE.BufferAttribute;
   public readonly heightmap: Float32Array;
 
+  public faces: number[];
   public vertexToFaces: Record<number, number[]>;
   public faceToVertices: Record<number, number[]>;
   public faceGrass: Record<number, number>;
@@ -71,6 +72,9 @@ export class TerrainGeometry extends THREE.BufferGeometry {
   scratchVertexWaterDepth: Float32Array;
 
   highlightedFace: number | null = null;
+
+  public readonly highestFace: number;
+  public readonly highestVertex: number;
 
   constructor(
     public readonly width: number,
@@ -103,11 +107,13 @@ export class TerrainGeometry extends THREE.BufferGeometry {
     this.scratchVertexWaterDepth = new Float32Array(this.vertexWaterDepth.length);
     this.scratchVertexWaterDepth.fill(0);
 
+    this.faces = [];
     this.faceToVertices = {};
     this.vertexToFaces = {};
     this.faceGrass = {};
 
     const initFace = (faceIdx: number, a: number, b: number, c: number) => {
+      this.faces.push(faceIdx);
       this.faceToVertices[faceIdx] = [a, b, c];
       this.vertexToFaces[a] ??= [];
       this.vertexToFaces[a].push(faceIdx);
@@ -136,6 +142,27 @@ export class TerrainGeometry extends THREE.BufferGeometry {
         }
       }
     }
+
+    let highestFace = this.faces[0];
+    let highestFaceHeight = -Infinity;
+    for (let faceIdx of this.faces) {
+      const height = this.xyzFaceCenter(faceIdx).z;
+      if (height > highestFaceHeight) {
+        highestFace = faceIdx;
+        highestFaceHeight = height;
+      }
+    }
+    this.highestFace = highestFace;
+
+    let highestVertex = 0;
+    let highestVertexHeight = -Infinity;
+    for (let i = 0; i < this.numUniqueVertices(); i++) {
+      if (this.heightmap[i] > highestVertexHeight) {
+        highestVertex = i;
+        highestVertexHeight = this.heightmap[i];
+      }
+    }
+    this.highestVertex = highestVertex;
   }
 
   // n quads per row,, n rows
@@ -352,6 +379,18 @@ export class TerrainGeometry extends THREE.BufferGeometry {
       }
     }
     return [...adj.entries()].filter(([_, v]) => v == 2).map(([k, v]) => k);
+  }
+
+  public adjacentPoints(pointIndex: number): number[] {
+    const adj = new Set<number>();
+    for (let face of this.vertexToFaces[pointIndex]) {
+      for (let point of this.faceToVertices[face]) {
+        if (point != pointIndex) {
+          adj.add(point);
+        }
+      }
+    }
+    return [...adj];
   }
 
   public faceVerticesAllWater(faceIdx: number): boolean {

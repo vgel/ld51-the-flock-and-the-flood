@@ -2,7 +2,13 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 import { TerrainGen, TerrainGeometry } from "./terrain";
-import { makeFlagSprite, makeSheepSprite } from "./sprites";
+import {
+  makeFlagSprite,
+  makeMonolith1Sprite,
+  makeMonolith2Sprite,
+  makeMonolithPillarSprite,
+  makeSheepSprite,
+} from "./sprites";
 import { assert, shuffle } from "./utils";
 import { Rain } from "./rain";
 
@@ -87,6 +93,9 @@ class App {
   public readonly rain: Rain;
   public readonly flagSprite: THREE.Sprite;
   public readonly meshSize: number;
+  public readonly monolith1Sprite: THREE.Object3D;
+  public readonly monolith2Sprite: THREE.Object3D;
+  public readonly monolithPillarSprites: THREE.Object3D[];
 
   public sheep: Sheep[] = [];
   public faceSheepSlotFree: Record<number, [boolean, boolean, boolean]> = {};
@@ -95,6 +104,7 @@ class App {
   public waterCounter = 0;
   public frame = 0;
   public sheepStoredFood = 0;
+  public templeLevel = 1;
 
   constructor({
     backgroundColor = 0x4f4f4f,
@@ -168,6 +178,30 @@ class App {
 
     this.flagSprite = makeFlagSprite();
     this.terrainMesh.add(this.flagSprite);
+
+    this.monolith1Sprite = makeMonolith1Sprite();
+    this.monolith2Sprite = makeMonolith2Sprite();
+    this.monolithPillarSprites = [
+      makeMonolithPillarSprite(),
+      makeMonolithPillarSprite(),
+      makeMonolithPillarSprite(),
+      makeMonolithPillarSprite(),
+      makeMonolithPillarSprite(),
+      makeMonolithPillarSprite(),
+    ];
+
+    {
+      const { x, y, z } = this.terrain.xyzAtPointIndex(this.terrain.highestVertex);
+      this.monolith1Sprite.position.set(x, y, z + 12);
+      this.monolith2Sprite.position.set(x, y, z + 30);
+
+      const neighbors = this.terrain.adjacentPoints(this.terrain.highestVertex);
+      for (let i = 0; i < neighbors.length; i++) {
+        const { x, y, z } = this.terrain.xyzAtPointIndex(neighbors[i]);
+        this.monolithPillarSprites[i].position.set(x, y, z + 30);
+      }
+    }
+    this.terrainMesh.add(this.monolith1Sprite);
 
     for (const { light, position } of lights) {
       this.scene.add(light);
@@ -355,6 +389,34 @@ class App {
       }
     }
 
+    if (this.templeLevel == 1 && this.sheep.length >= 30) {
+      this.templeLevel = 2;
+      this.monolith1Sprite.removeFromParent();
+      this.terrainMesh.add(this.monolith2Sprite);
+    } else if (this.templeLevel == 2 && this.sheep.length >= 40) {
+      this.templeLevel = 3;
+      this.terrainMesh.add(this.monolithPillarSprites[0]);
+    } else if (this.templeLevel == 3 && this.sheep.length >= 50) {
+      this.templeLevel = 4;
+      this.terrainMesh.add(this.monolithPillarSprites[3]);
+    } else if (this.templeLevel == 4 && this.sheep.length >= 60) {
+      this.templeLevel = 5;
+      this.terrainMesh.add(this.monolithPillarSprites[1]);
+    } else if (this.templeLevel == 5 && this.sheep.length >= 70) {
+      this.templeLevel = 6;
+      this.terrainMesh.add(this.monolithPillarSprites[4]);
+    } else if (this.templeLevel == 6 && this.sheep.length >= 80) {
+      this.templeLevel = 7;
+      this.terrainMesh.add(this.monolithPillarSprites[2]);
+    } else if (this.templeLevel == 7 && this.sheep.length >= 90) {
+      this.templeLevel = 8;
+      this.terrainMesh.add(this.monolithPillarSprites[5]);
+    }
+  
+    if (this.flockingPoint != null && this.terrain.faceVerticesAllWater(this.flockingPoint)) {
+      this.flagSprite.position.set(10000, 10000, 10000);
+    }
+
     this.terrain.setupVertices();
   }
 
@@ -374,7 +436,18 @@ class App {
     if (this.flockingPoint !== null) {
       // player placed sheep
       if (this.waterCounter == 600) {
-        this.waterLevel += 5;
+        if (this.waterLevel < -35) {
+          this.waterLevel += 3;
+        } else if (this.waterLevel < 20) {
+          this.waterLevel += 5;
+        } else if (this.waterLevel < 40) {
+          this.waterLevel += 10;
+        } else if (this.waterLevel < 90) {
+          this.waterLevel += 20;
+        } else {
+          this.waterLevel += 35;
+        }
+        this.waterLevel = Math.min(this.terrain.heightmap[this.terrain.highestVertex] + 1, this.waterLevel);
         this.waterCounter = 0;
       } else {
         this.waterCounter++;
