@@ -700,7 +700,7 @@ window.onload = () => {
   window.addEventListener(
     "keydown",
     (event) => {
-      if (event.key == "Esc" || event.key == "Escape") {
+      if (event.key == "p") {
         if (state == "pause") {
           enterPlaying();
         } else if (state == "playing") {
@@ -731,6 +731,8 @@ window.onload = () => {
 
   let lastSheepCount: number | null = null;
   function frame() {
+    requestAnimationFrame(frame);
+
     (window as any)["app"] = app;
     app.render(state !== "playing");
 
@@ -750,8 +752,6 @@ window.onload = () => {
 
     sheepFoodElem.value = app.sheepStoredFood / 5;
     waterLevelElem.value = app.waterCounter / 600;
-
-    requestAnimationFrame(frame);
   }
 
   requestAnimationFrame(frame);

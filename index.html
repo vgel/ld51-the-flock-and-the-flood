@@ -54,6 +54,7 @@
       display: flex;
       place-content: center;
       z-index: 10;
+      pointer-events: none;
     }
 
     .menu-inner {
@@ -64,6 +65,7 @@
       margin-top: 16px;
       gap: 16px;
       align-self: center;
+      pointer-events: all;
     }
     
     #menu > .menu-inner {
@@ -73,7 +75,7 @@
     }
 
     #endgame-menu > .menu-inner {
-      align-self: stretch;
+      align-self: flex-start;
     }
 
     .hero-img {
@@ -152,7 +154,7 @@
           <p>Click to place or move your sheep, click and drag to move the camera, scroll to zoom.</p>
           <p>The flood rises every 10 seconds. Don't let your sheep drown!</p>
           <p>Sheep eat grass, darker grass is better. When the grass bar fills, a new sheep is born.</p>
-          <p>The temple on the peak grows with your flock.</p>
+          <p>The temple on the peak grows with every ten sheep in your flock.</p>
         </div>
       </div>
     </div>
@@ -166,7 +168,7 @@
         <p>Click to place or move your sheep, click and drag to move the camera, scroll to zoom.</p>
         <p>The flood rises every 10 seconds. Don't let your sheep drown!</p>
         <p>Sheep eat grass, darker grass is better. When the grass bar fills, a new sheep is born.</p>
-        <p>The temple on the peak grows with your flock.</p>
+        <p>The temple on the peak grows with every ten sheep in your flock.</p>
       </div>
     </div>
   </section>
