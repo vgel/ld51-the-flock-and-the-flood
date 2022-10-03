@@ -71,7 +71,7 @@ function makeBgTrack(path: string, initialVolume: number): Howl {
 }
 
 const tracks = {
-  rain: makeBgTrack("rain.mp3", 0.03),
+  rain: makeBgTrack("rain.mp3", 0.04),
   music: makeBgTrack("music.mp3", 0.2),
 };
 (window as any).tracks = tracks;
