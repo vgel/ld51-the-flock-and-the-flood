@@ -435,7 +435,8 @@ class App {
 
     if (this.flockingPoint !== null) {
       // player placed sheep
-      if (this.waterCounter == 600) {
+      const highestWaterLevel = this.terrain.heightmap[this.terrain.highestVertex] + 1;
+      if (this.waterCounter == 600 && this.waterLevel < highestWaterLevel) {
         if (this.waterLevel < -35) {
           this.waterLevel += 3;
         } else if (this.waterLevel < 20) {
@@ -447,7 +448,7 @@ class App {
         } else {
           this.waterLevel += 35;
         }
-        this.waterLevel = Math.min(this.terrain.heightmap[this.terrain.highestVertex] + 1, this.waterLevel);
+        this.waterLevel = Math.min(highestWaterLevel, this.waterLevel);
         this.waterCounter = 0;
       } else {
         this.waterCounter++;
