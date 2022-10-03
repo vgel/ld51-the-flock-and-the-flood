@@ -10,10 +10,12 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@types/howler": "^2.2.7",
     "@types/three": "^0.144.0",
     "alea": "^1.0.1",
     "dat.gui": "^0.7.9",
     "esbuild": "^0.15.10",
+    "howler": "^2.2.3",
     "simplex-noise": "^4.0.0",
     "three": "^0.145.0"
   }

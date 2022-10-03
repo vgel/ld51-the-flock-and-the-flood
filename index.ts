@@ -11,6 +11,7 @@ import {
 } from "./sprites";
 import { assert, shuffle } from "./utils";
 import { Rain } from "./rain";
+import { SoundEffect } from "./sounds";
 
 function colorMap(height: number, grassAmount: number, waterDepth: number) {
   if (waterDepth <= 0) {
@@ -96,6 +97,9 @@ class App {
   public readonly monolith1Sprite: THREE.Object3D;
   public readonly monolith2Sprite: THREE.Object3D;
   public readonly monolithPillarSprites: THREE.Object3D[];
+
+  public readonly sheepBaaSound = new SoundEffect("sheepBaa", 60, 60);
+  public readonly sheepEatSound = new SoundEffect("sheepEat", 60, 60);
 
   public sheep: Sheep[] = [];
   public faceSheepSlotFree: Record<number, [boolean, boolean, boolean]> = {};
@@ -386,6 +390,7 @@ class App {
       if (this.trySpawnSheep()) {
         console.log("spawned sheep");
         this.sheepStoredFood -= 5;
+        this.sheepBaaSound.play();
       }
     }
 
@@ -422,6 +427,8 @@ class App {
 
   public tick() {
     this.rain.tick();
+    this.sheepBaaSound.update();
+    this.sheepEatSound.update();
 
     for (let sheep of this.sheep) {
       if (this.terrain.faceVerticesAllWater(sheep.faceIndex)) {
